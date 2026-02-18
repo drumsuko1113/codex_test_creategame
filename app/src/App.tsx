@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { findKingPosition, isInCheck } from "../../core/src/check";
 import { isCheckmate } from "../../core/src/checkmate";
@@ -207,6 +207,12 @@ export function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
+  const pieceSoundRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    pieceSoundRef.current = new Audio("/piece-sound.mp3");
+    pieceSoundRef.current.preload = "auto";
+  }, []);
 
   useEffect(() => {
     if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
@@ -299,6 +305,11 @@ export function App() {
     const result = applyMove(state, move);
     if (!result.ok) {
       return;
+    }
+
+    if (pieceSoundRef.current) {
+      pieceSoundRef.current.currentTime = 0;
+      void pieceSoundRef.current.play().catch(() => {});
     }
 
     const moveNumber = moveHistory.length + 1;
