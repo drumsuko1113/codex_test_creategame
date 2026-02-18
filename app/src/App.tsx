@@ -1,4 +1,4 @@
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { findKingPosition, isInCheck } from "../../core/src/check";
 import { isCheckmate } from "../../core/src/checkmate";
@@ -42,7 +42,6 @@ export function App() {
   const [stateHistory, setStateHistory] = useState<GameState[]>([initialState]);
   const [checkingHistory, setCheckingHistory] = useState<Array<Color | null>>([]);
   const [selected, setSelected] = useState<Position | null>(null);
-  const [keyboardCursor, setKeyboardCursor] = useState<Position>({ x: 4, y: 4 });
   const [selectedDrop, setSelectedDrop] = useState<PieceKind | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [winner, setWinner] = useState<Color | null>(null);
@@ -207,8 +206,6 @@ export function App() {
   };
 
   const onSquareClick = (position: Position) => {
-    setKeyboardCursor(position);
-
     if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
       return;
     }
@@ -276,7 +273,6 @@ export function App() {
     setStateHistory([nextInitialState]);
     setCheckingHistory([]);
     setSelected(null);
-    setKeyboardCursor({ x: 4, y: 4 });
     setSelectedDrop(null);
     setPendingPromotion(null);
     setWinner(null);
@@ -300,42 +296,8 @@ export function App() {
     setShowRestartDialog(false);
     setPendingPromotion(null);
     setSelected(null);
-    setKeyboardCursor({ x: 4, y: 4 });
     setSelectedDrop(null);
     setIsPaused(false);
-  };
-
-  const onBoardKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
-      return;
-    }
-
-    const { key } = event;
-    if (key === "Enter" || key === " ") {
-      event.preventDefault();
-      onSquareClick(keyboardCursor);
-      return;
-    }
-
-    let dx = 0;
-    let dy = 0;
-    if (key === "ArrowLeft") {
-      dx = -1;
-    } else if (key === "ArrowRight") {
-      dx = 1;
-    } else if (key === "ArrowUp") {
-      dy = -1;
-    } else if (key === "ArrowDown") {
-      dy = 1;
-    } else {
-      return;
-    }
-
-    event.preventDefault();
-    setKeyboardCursor((current) => ({
-      x: Math.max(0, Math.min(8, current.x + dx)),
-      y: Math.max(0, Math.min(8, current.y + dy)),
-    }));
   };
 
   const lastMoveTo = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1].to : null;
@@ -475,10 +437,8 @@ export function App() {
           selected={selected}
           legalTargets={legalTargets}
           checkedKing={checkedKing}
-          keyboardCursor={keyboardCursor}
           lastMoveTo={lastMoveTo}
           onSquareClick={onSquareClick}
-          onBoardKeyDown={onBoardKeyDown}
         />
 
         <div className="hand-anchor hand-anchor-black">
