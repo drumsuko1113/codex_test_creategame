@@ -18,6 +18,48 @@ body {
   padding: 24px;
 }
 
+.match-controls {
+  margin: 0 auto 12px;
+  width: min(620px, 100%);
+  border: 1px solid #6e5838;
+  background: #f7e9c9;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.match-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.match-controls-label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.time-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.match-control-button {
+  border: 1px solid #5f4a2e;
+  background: #f4e3bf;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.match-control-button.is-selected {
+  background: #d8efdb;
+  border-color: #2f5b32;
+}
+
 .game-area {
   position: relative;
   width: min(620px, 100%);
@@ -144,6 +186,33 @@ body {
   padding: 10px;
   border: 1px solid #6e5838;
   background: #f1e4c8;
+}
+
+.clock-panel {
+  margin-bottom: 8px;
+  border: 1px solid #6e5838;
+  background: #f7e9c9;
+  padding: 6px 8px;
+}
+
+.clock-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.clock-main {
+  margin: 2px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .hand-title {
