@@ -1,4 +1,3 @@
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from "react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { findKingPosition, isInCheck } from "../../core/src/check";
