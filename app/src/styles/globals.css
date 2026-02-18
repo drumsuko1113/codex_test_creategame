@@ -39,6 +39,8 @@ body {
   background: #f5e4b8;
   cursor: pointer;
   font-size: 18px;
+  display: grid;
+  place-items: center;
 }
 
 .square.is-selected {
@@ -46,15 +48,12 @@ body {
 }
 
 .piece {
-  font-weight: 700;
-}
-
-.piece-white {
-  color: #1f1f1f;
-}
-
-.piece-black {
-  color: #9e2a2b;
+  display: inline-block;
+  width: 92%;
+  aspect-ratio: 1;
+  background-repeat: no-repeat;
+  filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.2));
+  mix-blend-mode: multiply;
 }
 
 .caption {
@@ -125,6 +124,43 @@ body {
   min-width: 24px;
   text-align: right;
   font-weight: 700;
+}
+
+.promotion-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.promotion-dialog {
+  width: min(320px, 100%);
+  background: #fff8e8;
+  border: 2px solid #6e5838;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.promotion-title {
+  margin: 0;
+  font-weight: 700;
+  text-align: center;
+}
+
+.promotion-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.promotion-actions button {
+  border: 1px solid #5f4a2e;
+  background: #f4e3bf;
+  padding: 8px 10px;
+  cursor: pointer;
 }
 
 @media (max-width: 980px) {
