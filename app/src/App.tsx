@@ -75,19 +75,18 @@ function sameSquare(a: Position, b: Position): boolean {
 function formatMoveText(
   stateBefore: GameState,
   move: BoardMove | { drop: PieceKind; to: Position },
-  moveNumber: number,
   previousTo: Position | null,
 ): string {
   const mover = sideLabel(stateBefore.turn);
   const destination = previousTo && sameSquare(previousTo, move.to) ? "同" : positionToKifu(move.to);
 
   if ("drop" in move) {
-    return `${moveNumber}. ${mover}${destination}${PIECE_LABEL[move.drop]}打`;
+    return `${mover}${destination}${PIECE_LABEL[move.drop]}打`;
   }
 
   const piece = stateBefore.board[move.from.y][move.from.x];
   if (!piece) {
-    return `${moveNumber}. ${mover}${destination}駒`;
+    return `${mover}${destination}駒`;
   }
 
   const label = pieceLabel(piece);
@@ -104,7 +103,7 @@ function formatMoveText(
     }
   }
 
-  return `${moveNumber}. ${mover}${destination}${label}${promotionSuffix}${positionToSource(move.from)}`;
+  return `${mover}${destination}${label}${promotionSuffix}${positionToSource(move.from)}`;
 }
 
 function winnerLabel(color: Color): string {
@@ -167,7 +166,7 @@ export function App() {
 
     const moveNumber = moveHistory.length + 1;
     const previousTo = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1].to : null;
-    const text = formatMoveText(state, move, moveNumber, previousTo);
+    const text = formatMoveText(state, move, previousTo);
     setMoveHistory((prev) => [...prev, { id: moveNumber, text, to: move.to }]);
     setState(result.value);
 
@@ -251,7 +250,7 @@ export function App() {
     const loser = state.turn;
     const nextWinner = oppositeColor(loser);
     const moveNumber = moveHistory.length + 1;
-    setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${moveNumber}. ${sideLabel(loser)}投了`, to: null }]);
+    setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(loser)}投了`, to: null }]);
     setWinner(nextWinner);
     setShowRestartDialog(true);
     setSelected(null);
