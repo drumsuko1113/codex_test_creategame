@@ -1,5 +1,6 @@
 ﻿import { type Move, type GameState, type Piece } from "./types";
 import { isMoveLegal } from "./moveValidator";
+import { resolvePromotion } from "./promotion";
 
 type ApplyResult =
   | { ok: true; value: GameState }
@@ -32,6 +33,11 @@ export function applyMove(state: GameState, move: Move): ApplyResult {
     return { ok: false, reason: "No piece found" };
   }
 
+  const promotion = resolvePromotion(movingPiece, move);
+  if (!promotion.ok) {
+    return { ok: false, reason: promotion.reason };
+  }
+
   const captured = nextBoard[move.to.y][move.to.x];
   if (captured) {
     const hand = nextHands[state.turn];
@@ -42,7 +48,7 @@ export function applyMove(state: GameState, move: Move): ApplyResult {
   nextBoard[move.from.y][move.from.x] = null;
   nextBoard[move.to.y][move.to.x] = {
     ...movingPiece,
-    promoted: move.promote ?? movingPiece.promoted,
+    promoted: promotion.promoted,
   };
 
   return {
