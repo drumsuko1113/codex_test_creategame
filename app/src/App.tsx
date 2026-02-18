@@ -424,7 +424,7 @@ export function App() {
 
   const startMatchFromSetup = () => {
     const nextTimeControl: TimeControl = {
-      mainSeconds: Math.max(1, Math.floor(setupMainMinutes)) * 60,
+      mainSeconds: Math.max(0, Math.floor(setupMainMinutes)) * 60,
       byoSeconds: Math.max(0, Math.floor(setupByoSeconds / 10) * 10),
     };
     setStartingTurn(setupStartingTurn);
@@ -495,12 +495,12 @@ export function App() {
                 id="main-minutes-input"
                 className="setup-number-input"
                 type="number"
-                min={1}
+                min={0}
                 step={1}
                 value={setupMainMinutes}
                 onChange={(event) => {
                   const value = Number.parseInt(event.target.value, 10);
-                  setSetupMainMinutes(Number.isNaN(value) ? 1 : Math.max(1, value));
+                  setSetupMainMinutes(Number.isNaN(value) ? 0 : Math.max(0, value));
                 }}
               />
               <label className="setup-input-label" htmlFor="byo-seconds-input">
