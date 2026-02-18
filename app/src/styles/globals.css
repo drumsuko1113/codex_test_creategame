@@ -53,3 +53,39 @@ body {
 .caption {
   margin-top: 12px;
 }
+
+.hands {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.hand-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #6e5838;
+  background: #f1e4c8;
+}
+
+.hand-title {
+  text-transform: capitalize;
+  font-weight: 700;
+}
+
+.hand-pieces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hand-piece {
+  border: 1px solid #664c2d;
+  background: #fff7e3;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.hand-piece.is-selected {
+  outline: 2px solid #2878ff;
+}
