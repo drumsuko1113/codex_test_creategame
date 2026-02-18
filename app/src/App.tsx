@@ -4,7 +4,7 @@ import { findKingPosition, isInCheck } from "../../core/src/check";
 import { isCheckmate } from "../../core/src/checkmate";
 import { createInitialGameState } from "../../core/src/initialPosition";
 import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
-import { type BoardMove, type Color, type PieceKind, type Position } from "../../core/src/types";
+import { type BoardMove, type Color, type GameState, type Piece, type PieceKind, type Position } from "../../core/src/types";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
 import { Hand } from "./ui/Hand";
@@ -17,6 +17,7 @@ type PendingPromotion = {
 type MoveRecord = {
   id: number;
   text: string;
+  to: Position | null;
 };
 
 const PIECE_LABEL: Record<PieceKind, string> = {
@@ -30,29 +31,84 @@ const PIECE_LABEL: Record<PieceKind, string> = {
   pawn: "歩",
 };
 
+const PROMOTED_PIECE_LABEL: Partial<Record<PieceKind, string>> = {
+  rook: "龍",
+  bishop: "馬",
+  silver: "全",
+  knight: "圭",
+  lance: "杏",
+  pawn: "と",
+};
+
+const FILE_LABEL = ["９", "８", "７", "６", "５", "４", "３", "２", "１"];
+const RANK_LABEL = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+
 function oppositeColor(color: Color): Color {
   return color === "black" ? "white" : "black";
 }
 
-function colorLabel(color: Color): string {
-  return color === "black" ? "先手" : "後手";
+function sideLabel(color: Color): string {
+  return color === "black" ? "▲" : "△";
 }
 
-function squareLabel(position: Position): string {
-  return `${position.x + 1}${position.y + 1}`;
+function positionToKifu(position: Position): string {
+  return `${FILE_LABEL[position.x]}${RANK_LABEL[position.y]}`;
 }
 
-function formatMoveText(stateBefore: ReturnType<typeof createInitialGameState>, move: BoardMove | { drop: PieceKind; to: Position }, moveNumber: number): string {
-  const mover = colorLabel(stateBefore.turn);
+function positionToSource(position: Position): string {
+  const file = 9 - position.x;
+  const rank = position.y + 1;
+  return `(${file}${rank})`;
+}
+
+function pieceLabel(piece: Piece): string {
+  if (piece.promoted && PROMOTED_PIECE_LABEL[piece.kind]) {
+    return PROMOTED_PIECE_LABEL[piece.kind] as string;
+  }
+  return PIECE_LABEL[piece.kind];
+}
+
+function sameSquare(a: Position, b: Position): boolean {
+  return a.x === b.x && a.y === b.y;
+}
+
+function formatMoveText(
+  stateBefore: GameState,
+  move: BoardMove | { drop: PieceKind; to: Position },
+  moveNumber: number,
+  previousTo: Position | null,
+): string {
+  const mover = sideLabel(stateBefore.turn);
+  const destination = previousTo && sameSquare(previousTo, move.to) ? "同" : positionToKifu(move.to);
 
   if ("drop" in move) {
-    return `${moveNumber}. ${mover} ${PIECE_LABEL[move.drop]}打 ${squareLabel(move.to)}`;
+    return `${moveNumber}. ${mover}${destination}${PIECE_LABEL[move.drop]}打`;
   }
 
   const piece = stateBefore.board[move.from.y][move.from.x];
-  const pieceLabel = piece ? PIECE_LABEL[piece.kind] : "駒";
-  const promoteLabel = move.promote ? "成" : "";
-  return `${moveNumber}. ${mover} ${pieceLabel}${promoteLabel} ${squareLabel(move.from)}→${squareLabel(move.to)}`;
+  if (!piece) {
+    return `${moveNumber}. ${mover}${destination}駒`;
+  }
+
+  const label = pieceLabel(piece);
+  const baseMove: BoardMove = { from: move.from, to: move.to };
+  const promotionAvailable = canChoosePromotion(piece, baseMove);
+  const forcedPromotion = shouldAutoPromote(piece, baseMove);
+
+  let promotionSuffix = "";
+  if (!piece.promoted) {
+    if (move.promote || forcedPromotion) {
+      promotionSuffix = "成";
+    } else if (promotionAvailable) {
+      promotionSuffix = "不成";
+    }
+  }
+
+  return `${moveNumber}. ${mover}${destination}${label}${promotionSuffix}${positionToSource(move.from)}`;
+}
+
+function winnerLabel(color: Color): string {
+  return color === "black" ? "先手" : "後手";
 }
 
 export function App() {
@@ -110,7 +166,9 @@ export function App() {
     }
 
     const moveNumber = moveHistory.length + 1;
-    setMoveHistory((prev) => [...prev, { id: moveNumber, text: formatMoveText(state, move, moveNumber) }]);
+    const previousTo = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1].to : null;
+    const text = formatMoveText(state, move, moveNumber, previousTo);
+    setMoveHistory((prev) => [...prev, { id: moveNumber, text, to: move.to }]);
     setState(result.value);
 
     if (isCheckmate(result.value)) {
@@ -193,7 +251,7 @@ export function App() {
     const loser = state.turn;
     const nextWinner = oppositeColor(loser);
     const moveNumber = moveHistory.length + 1;
-    setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${moveNumber}. ${colorLabel(loser)} 投了` }]);
+    setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${moveNumber}. ${sideLabel(loser)}投了`, to: null }]);
     setWinner(nextWinner);
     setShowRestartDialog(true);
     setSelected(null);
@@ -245,9 +303,7 @@ export function App() {
           />
         </div>
       </section>
-      <p className="caption">
-        {winner ? `終局: ${winner === "black" ? "先手" : "後手"}の勝ちです` : `手番: ${state.turn === "black" ? "先手" : "後手"}`}
-      </p>
+      <p className="caption">{winner ? `終局: ${winnerLabel(winner)}の勝ちです` : `手番: ${winnerLabel(state.turn)}`}</p>
       <div className="actions">
         <button type="button" className="resign-button" disabled={winner !== null} onClick={resign}>
           投了
