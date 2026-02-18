@@ -32,6 +32,8 @@ body {
   background: #f5e4b8;
   cursor: pointer;
   font-size: 18px;
+  display: grid;
+  place-items: center;
 }
 
 .square.is-selected {
@@ -39,25 +41,11 @@ body {
 }
 
 .piece {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
   width: 74%;
   aspect-ratio: 1;
-  font-size: clamp(16px, 2.8vw, 24px);
-  font-weight: 700;
-  color: #1e1712;
-  clip-path: polygon(50% 0%, 100% 22%, 90% 100%, 10% 100%, 0% 22%);
-  border: 1px solid #5d4225;
-  background: linear-gradient(135deg, rgba(255, 248, 231, 0.95), rgba(239, 218, 171, 0.95)), url("/将棋駒.jpg") center / cover no-repeat;
-}
-
-.piece-white {
-  transform: rotate(180deg);
-}
-
-.piece-black {
-  transform: rotate(0deg);
+  background-repeat: no-repeat;
+  filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.2));
 }
 
 .caption {
