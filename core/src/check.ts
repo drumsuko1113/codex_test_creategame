@@ -1,7 +1,7 @@
 ﻿import { isMoveLegal } from "./moveValidator";
 import { type Color, type GameState, type Position } from "./types";
 
-function findKingPosition(state: GameState, color: Color): Position | null {
+export function findKingPosition(state: GameState, color: Color): Position | null {
   for (let y = 0; y < state.board.length; y += 1) {
     for (let x = 0; x < state.board[y].length; x += 1) {
       const piece = state.board[y][x];
