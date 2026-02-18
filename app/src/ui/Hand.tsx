@@ -1,4 +1,5 @@
-﻿import { type Color, type HandState, type PieceKind } from "../../../core/src/types";
+﻿import { type CSSProperties } from "react";
+import { type Color, type HandState, type PieceKind } from "../../../core/src/types";
 
 type HandProps = {
   hands: HandState;
@@ -10,21 +11,41 @@ type HandProps = {
 
 const HAND_ORDER: PieceKind[] = ["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"];
 
-const HAND_LABELS: Record<PieceKind, string> = {
-  king: "王",
-  rook: "飛",
-  bishop: "角",
-  gold: "金",
-  silver: "銀",
-  knight: "桂",
-  lance: "香",
-  pawn: "歩",
-};
-
 const PLAYER_LABEL: Record<Color, string> = {
   black: "先手",
   white: "後手",
 };
+
+const NORMAL_COLS: Record<PieceKind, number> = {
+  king: 0,
+  rook: 1,
+  bishop: 2,
+  gold: 3,
+  silver: 4,
+  knight: 5,
+  lance: 6,
+  pawn: 7,
+};
+
+function toPercent(index: number, maxIndex: number): string {
+  if (maxIndex === 0) {
+    return "0%";
+  }
+  return `${(index * 100) / maxIndex}%`;
+}
+
+function handPieceSpriteStyle(color: Color, kind: PieceKind): CSSProperties {
+  const cols = 8;
+  const rows = 4;
+  const col = NORMAL_COLS[kind];
+  const row = color === "black" ? 0 : 2;
+
+  return {
+    backgroundImage: 'url("/将棋駒.jpg")',
+    backgroundSize: `${cols * 100}% ${rows * 100}%`,
+    backgroundPosition: `${toPercent(col, cols - 1)} ${toPercent(row, rows - 1)}`,
+  };
+}
 
 export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandProps) {
   return (
@@ -44,7 +65,8 @@ export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandP
               className={`hand-piece ${selected ? "is-selected" : ""}`.trim()}
               onClick={() => onSelectDrop(kind)}
             >
-              {HAND_LABELS[kind]} x{count}
+              <span className="hand-piece-icon" style={handPieceSpriteStyle(color, kind)} aria-hidden="true" />
+              <span className="hand-piece-count">x{count}</span>
             </button>
           );
         })}

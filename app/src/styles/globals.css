@@ -98,15 +98,33 @@ body {
 }
 
 .hand-piece {
-  text-align: left;
   border: 1px solid #664c2d;
   background: #fff7e3;
-  padding: 4px 8px;
+  padding: 4px 6px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
 }
 
 .hand-piece.is-selected {
   outline: 2px solid #2878ff;
+}
+
+.hand-piece-icon {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  background-repeat: no-repeat;
+}
+
+.hand-piece-count {
+  font-size: 13px;
+  line-height: 1;
+  min-width: 24px;
+  text-align: right;
+  font-weight: 700;
 }
 
 @media (max-width: 980px) {
