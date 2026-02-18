@@ -4,6 +4,7 @@ import { findKingPosition, isInCheck } from "../../core/src/check";
 import { isCheckmate } from "../../core/src/checkmate";
 import { createInitialGameState } from "../../core/src/initialPosition";
 import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
+import { findSamePositionIndices } from "../../core/src/repetition";
 import { type BoardMove, type Color, type GameState, type Piece, type PieceKind, type Position } from "../../core/src/types";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
@@ -110,13 +111,55 @@ function winnerLabel(color: Color): string {
   return color === "black" ? "先手" : "後手";
 }
 
+function findPerpetualCheckLoser(
+  stateHistory: GameState[],
+  checkingHistory: Array<Color | null>,
+  startStateIndex: number,
+  endStateIndex: number,
+): Color | null {
+  const isContinuousBy = (color: Color): boolean => {
+    let sawOwnMove = false;
+
+    for (let moveIndex = startStateIndex; moveIndex < endStateIndex; moveIndex += 1) {
+      const mover = stateHistory[moveIndex].turn;
+      if (mover !== color) {
+        continue;
+      }
+
+      sawOwnMove = true;
+      if (checkingHistory[moveIndex] !== color) {
+        return false;
+      }
+    }
+
+    return sawOwnMove;
+  };
+
+  const blackContinuous = isContinuousBy("black");
+  const whiteContinuous = isContinuousBy("white");
+
+  if (blackContinuous && !whiteContinuous) {
+    return "black";
+  }
+
+  if (whiteContinuous && !blackContinuous) {
+    return "white";
+  }
+
+  return null;
+}
+
 export function App() {
   const initialState = useMemo(() => createInitialGameState(), []);
   const [state, setState] = useState(initialState);
+  const [stateHistory, setStateHistory] = useState<GameState[]>([initialState]);
+  const [checkingHistory, setCheckingHistory] = useState<Array<Color | null>>([]);
   const [selected, setSelected] = useState<Position | null>(null);
   const [selectedDrop, setSelectedDrop] = useState<PieceKind | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [winner, setWinner] = useState<Color | null>(null);
+  const [resultText, setResultText] = useState<string | null>(null);
+  const [gameOver, setGameOver] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
 
@@ -128,7 +171,7 @@ export function App() {
   }, [state]);
 
   const legalTargets = useMemo(() => {
-    if (!selected || winner || pendingPromotion || selectedDrop) {
+    if (!selected || gameOver || pendingPromotion || selectedDrop) {
       return [];
     }
 
@@ -156,7 +199,7 @@ export function App() {
     }
 
     return targets;
-  }, [selected, winner, pendingPromotion, selectedDrop, state]);
+  }, [selected, gameOver, pendingPromotion, selectedDrop, state]);
 
   const applyAndJudge = (move: BoardMove | { drop: PieceKind; to: Position }) => {
     const result = applyMove(state, move);
@@ -170,14 +213,48 @@ export function App() {
     setMoveHistory((prev) => [...prev, { id: moveNumber, text, to: move.to }]);
     setState(result.value);
 
+    const checkingColor = isInCheck(result.value) ? state.turn : null;
+    const nextStateHistory = [...stateHistory, result.value];
+    const nextCheckingHistory = [...checkingHistory, checkingColor];
+    setStateHistory(nextStateHistory);
+    setCheckingHistory(nextCheckingHistory);
+
     if (isCheckmate(result.value)) {
-      setWinner(oppositeColor(result.value.turn));
+      const nextWinner = oppositeColor(result.value.turn);
+      setWinner(nextWinner);
+      setResultText(`${winnerLabel(nextWinner)}の勝ちです`);
+      setGameOver(true);
+      setShowRestartDialog(true);
+      return;
+    }
+
+    const samePositionIndices = findSamePositionIndices(nextStateHistory, result.value);
+    if (samePositionIndices.length >= 4) {
+      const repetitionStartIndex = samePositionIndices[samePositionIndices.length - 4];
+      const repetitionEndIndex = nextStateHistory.length - 1;
+      const foulLoser = findPerpetualCheckLoser(
+        nextStateHistory,
+        nextCheckingHistory,
+        repetitionStartIndex,
+        repetitionEndIndex,
+      );
+
+      if (foulLoser) {
+        const nextWinner = oppositeColor(foulLoser);
+        setWinner(nextWinner);
+        setResultText(`連続王手の千日手により${winnerLabel(nextWinner)}の勝ちです`);
+      } else {
+        setWinner(null);
+        setResultText("千日手（引き分け）です");
+      }
+
+      setGameOver(true);
       setShowRestartDialog(true);
     }
   };
 
   const onSquareClick = (position: Position) => {
-    if (winner || pendingPromotion) {
+    if (gameOver || pendingPromotion) {
       return;
     }
 
@@ -233,17 +310,22 @@ export function App() {
   };
 
   const startNewGame = () => {
-    setState(createInitialGameState());
+    const nextInitial = createInitialGameState();
+    setState(nextInitial);
+    setStateHistory([nextInitial]);
+    setCheckingHistory([]);
     setSelected(null);
     setSelectedDrop(null);
     setPendingPromotion(null);
     setWinner(null);
+    setResultText(null);
+    setGameOver(false);
     setShowRestartDialog(false);
     setMoveHistory([]);
   };
 
   const resign = () => {
-    if (winner) {
+    if (gameOver) {
       return;
     }
 
@@ -252,6 +334,8 @@ export function App() {
     const moveNumber = moveHistory.length + 1;
     setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(loser)}投了`, to: null }]);
     setWinner(nextWinner);
+    setResultText(`${winnerLabel(nextWinner)}の勝ちです`);
+    setGameOver(true);
     setShowRestartDialog(true);
     setSelected(null);
     setSelectedDrop(null);
@@ -266,10 +350,10 @@ export function App() {
           <Hand
             hands={state.hands}
             color="white"
-            active={!winner && state.turn === "white"}
+            active={!gameOver && state.turn === "white"}
             selectedDrop={selectedDrop}
             onSelectDrop={(kind) => {
-              if (winner || pendingPromotion) {
+              if (gameOver || pendingPromotion) {
                 return;
               }
               setSelected(null);
@@ -298,10 +382,10 @@ export function App() {
           <Hand
             hands={state.hands}
             color="black"
-            active={!winner && state.turn === "black"}
+            active={!gameOver && state.turn === "black"}
             selectedDrop={selectedDrop}
             onSelectDrop={(kind) => {
-              if (winner || pendingPromotion) {
+              if (gameOver || pendingPromotion) {
                 return;
               }
               setSelected(null);
@@ -310,12 +394,12 @@ export function App() {
           />
         </div>
       </section>
-      <p className="caption">{winner ? `終局: ${winnerLabel(winner)}の勝ちです` : `手番: ${winnerLabel(state.turn)}`}</p>
+      <p className="caption">{gameOver ? `終局: ${resultText}` : `手番: ${winnerLabel(state.turn)}`}</p>
       <div className="actions">
-        <button type="button" className="resign-button" disabled={winner !== null} onClick={resign}>
+        <button type="button" className="resign-button" disabled={gameOver} onClick={resign}>
           投了
         </button>
-        {winner && !showRestartDialog ? (
+        {gameOver && !showRestartDialog ? (
           <button type="button" className="restart-button" onClick={startNewGame}>
             再対局
           </button>
@@ -324,8 +408,8 @@ export function App() {
 
       <PromotionDialog isOpen={pendingPromotion !== null} onChoose={onPromotionChoice} />
       <GameOverDialog
-        isOpen={showRestartDialog && winner !== null}
-        winner={winner}
+        isOpen={showRestartDialog && gameOver}
+        resultText={resultText}
         onRestart={startNewGame}
         onClose={() => setShowRestartDialog(false)}
       />
