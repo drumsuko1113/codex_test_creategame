@@ -64,6 +64,13 @@ function formatSeconds(seconds: number): string {
   return `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
+function formatClockText(mainSeconds: number, byoSeconds: number): string {
+  if (mainSeconds > 0) {
+    return formatSeconds(mainSeconds);
+  }
+  return `秒読み ${formatSeconds(byoSeconds)}`;
+}
+
 function oppositeColor(color: Color): Color {
   return color === "black" ? "white" : "black";
 }
@@ -546,9 +553,8 @@ export function App() {
       <section className="game-area">
         <div className="hand-anchor hand-anchor-white">
           <div className="clock-panel">
-            <p className="clock-title">持ち時間（後手）</p>
-            <p className="clock-main">{formatSeconds(clockState.main.white)}</p>
-            <p className="clock-sub">秒読み {formatSeconds(clockState.byo.white)}</p>
+            <p className="clock-title">持ち時間</p>
+            <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
           </div>
           <Hand
             hands={state.hands}
@@ -583,9 +589,8 @@ export function App() {
 
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
-            <p className="clock-title">持ち時間（先手）</p>
-            <p className="clock-main">{formatSeconds(clockState.main.black)}</p>
-            <p className="clock-sub">秒読み {formatSeconds(clockState.byo.black)}</p>
+            <p className="clock-title">持ち時間</p>
+            <p className="clock-main">{formatClockText(clockState.main.black, clockState.byo.black)}</p>
           </div>
           <Hand
             hands={state.hands}
