@@ -1,4 +1,4 @@
-﻿import { applyMove } from "./applyMove";
+﻿import { tryApplyMove } from "./moveExecutor";
 import { isInCheck } from "./check";
 import { type GameState, type PieceKind } from "./types";
 
@@ -18,7 +18,7 @@ function hasAnyLegalMove(state: GameState): boolean {
             continue;
           }
 
-          const normalResult = applyMove(state, {
+          const normalResult = tryApplyMove(state, {
             from: { x, y },
             to: { x: toX, y: toY },
           });
@@ -27,7 +27,7 @@ function hasAnyLegalMove(state: GameState): boolean {
             return true;
           }
 
-          const promoteResult = applyMove(state, {
+          const promoteResult = tryApplyMove(state, {
             from: { x, y },
             to: { x: toX, y: toY },
             promote: true,
@@ -49,7 +49,7 @@ function hasAnyLegalMove(state: GameState): boolean {
 
     for (let y = 0; y < 9; y += 1) {
       for (let x = 0; x < 9; x += 1) {
-        const dropResult = applyMove(state, {
+        const dropResult = tryApplyMove(state, {
           drop: kind,
           to: { x, y },
         });
