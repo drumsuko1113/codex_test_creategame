@@ -42,10 +42,11 @@ body {
 
 .piece {
   display: inline-block;
-  width: 74%;
+  width: 92%;
   aspect-ratio: 1;
   background-repeat: no-repeat;
   filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.2));
+  mix-blend-mode: multiply;
 }
 
 .caption {
