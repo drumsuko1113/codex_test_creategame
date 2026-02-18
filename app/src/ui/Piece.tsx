@@ -53,7 +53,7 @@ function toPercent(index: number, maxIndex: number): string {
 export function Piece({ piece }: PieceProps) {
   const { col, row } = spritePosition(piece);
   const style: CSSProperties = {
-    backgroundImage: 'url("/将棋駒.jpg")',
+    backgroundImage: 'url("/将棋駒.png")',
     backgroundSize: `${COLS * 100}% ${ROWS * 100}%`,
     backgroundPosition: `${toPercent(col, COLS - 1)} ${toPercent(row, ROWS - 1)}`,
   };
