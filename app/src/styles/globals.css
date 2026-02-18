@@ -1,0 +1,55 @@
+﻿:root {
+  font-family: "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(160deg, #f3f0e8, #d7c8ab);
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 2px;
+  border: 2px solid #3f2f1f;
+  background: #3f2f1f;
+}
+
+.square {
+  aspect-ratio: 1;
+  border: none;
+  background: #f5e4b8;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.square.is-selected {
+  outline: 3px solid #2878ff;
+}
+
+.piece {
+  font-weight: 700;
+}
+
+.piece-white {
+  color: #1f1f1f;
+}
+
+.piece-black {
+  color: #9e2a2b;
+}
+
+.caption {
+  margin-top: 12px;
+}
