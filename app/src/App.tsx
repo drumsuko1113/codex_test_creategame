@@ -21,6 +21,8 @@ type MoveRecord = {
   to: Position | null;
 };
 
+type ScreenMode = "setup" | "game";
+
 type TimeControl = {
   mainSeconds: number;
   byoSeconds: number;
@@ -64,6 +66,10 @@ function formatSeconds(seconds: number): string {
   const min = Math.floor(s / 60);
   const sec = s % 60;
   return `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+function timePresetLabel(timeControl: TimeControl): string {
+  return `${Math.floor(timeControl.mainSeconds / 60)}分+${timeControl.byoSeconds}秒`;
 }
 
 function oppositeColor(color: Color): Color {
@@ -180,10 +186,15 @@ function findPerpetualCheckLoser(
 
 export function App() {
   const initialTimeControl = TIME_PRESETS[0];
+  const initialState = useMemo(() => createInitialGameState(), []);
+
+  const [screenMode, setScreenMode] = useState<ScreenMode>("setup");
+  const [setupStartingTurn, setSetupStartingTurn] = useState<Color>("black");
+  const [setupTimeControl, setSetupTimeControl] = useState<TimeControl>(initialTimeControl);
   const [startingTurn, setStartingTurn] = useState<Color>("black");
   const [timeControl, setTimeControl] = useState<TimeControl>(initialTimeControl);
-  const initialState = useMemo(() => createInitialGameState(), []);
-  const [state, setState] = useState(initialState);
+
+  const [state, setState] = useState<GameState>(initialState);
   const [clockState, setClockState] = useState<ClockState>(() => createClockState(initialTimeControl));
   const [stateHistory, setStateHistory] = useState<GameState[]>([initialState]);
   const [checkingHistory, setCheckingHistory] = useState<Array<Color | null>>([]);
@@ -198,7 +209,7 @@ export function App() {
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
 
   useEffect(() => {
-    if (gameOver || isPaused || pendingPromotion) {
+    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
       return;
     }
 
@@ -221,10 +232,10 @@ export function App() {
     }, 1000);
 
     return () => window.clearInterval(timerId);
-  }, [state.turn, gameOver, isPaused, pendingPromotion, timeControl.byoSeconds]);
+  }, [screenMode, state.turn, gameOver, isPaused, pendingPromotion, timeControl.byoSeconds]);
 
   useEffect(() => {
-    if (gameOver || isPaused || pendingPromotion) {
+    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
       return;
     }
 
@@ -244,7 +255,7 @@ export function App() {
     setSelected(null);
     setSelectedDrop(null);
     setPendingPromotion(null);
-  }, [clockState, gameOver, isPaused, pendingPromotion, state.turn, timeControl.byoSeconds]);
+  }, [screenMode, clockState, gameOver, isPaused, pendingPromotion, state.turn, timeControl.byoSeconds]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
@@ -254,7 +265,7 @@ export function App() {
   }, [state]);
 
   const legalTargets = useMemo(() => {
-    if (!selected || gameOver || isPaused || pendingPromotion || selectedDrop) {
+    if (screenMode !== "game" || !selected || gameOver || isPaused || pendingPromotion || selectedDrop) {
       return [];
     }
 
@@ -282,7 +293,7 @@ export function App() {
     }
 
     return targets;
-  }, [selected, gameOver, isPaused, pendingPromotion, selectedDrop, state]);
+  }, [screenMode, selected, gameOver, isPaused, pendingPromotion, selectedDrop, state]);
 
   const applyAndJudge = (move: BoardMove | { drop: PieceKind; to: Position }) => {
     const result = applyMove(state, move);
@@ -341,7 +352,7 @@ export function App() {
   };
 
   const onSquareClick = (position: Position) => {
-    if (gameOver || isPaused || pendingPromotion) {
+    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
       return;
     }
 
@@ -418,19 +429,24 @@ export function App() {
     setMoveHistory([]);
   };
 
-  const swapStartingTurn = () => {
-    const nextTurn = startingTurn === "black" ? "white" : "black";
-    setStartingTurn(nextTurn);
-    startNewGame(nextTurn, timeControl);
+  const startMatchFromSetup = () => {
+    setStartingTurn(setupStartingTurn);
+    setTimeControl(setupTimeControl);
+    startNewGame(setupStartingTurn, setupTimeControl);
+    setScreenMode("game");
   };
 
-  const applyTimeControl = (preset: TimeControl) => {
-    setTimeControl(preset);
-    startNewGame(startingTurn, preset);
+  const returnToSetup = () => {
+    setScreenMode("setup");
+    setShowRestartDialog(false);
+    setPendingPromotion(null);
+    setSelected(null);
+    setSelectedDrop(null);
+    setIsPaused(false);
   };
 
   const resign = () => {
-    if (gameOver || isPaused) {
+    if (screenMode !== "game" || gameOver || isPaused) {
       return;
     }
 
@@ -447,45 +463,69 @@ export function App() {
     setPendingPromotion(null);
   };
 
+  if (screenMode === "setup") {
+    return (
+      <main className="app">
+        <h1>Shogi Game</h1>
+        <section className="start-screen" aria-label="match setup">
+          <h2>対局設定</h2>
+          <div className="setup-row">
+            <span className="setup-label">開始手番</span>
+            <div className="setup-options">
+              <button
+                type="button"
+                className={`setup-button ${setupStartingTurn === "black" ? "is-selected" : ""}`.trim()}
+                onClick={() => setSetupStartingTurn("black")}
+              >
+                先手
+              </button>
+              <button
+                type="button"
+                className={`setup-button ${setupStartingTurn === "white" ? "is-selected" : ""}`.trim()}
+                onClick={() => setSetupStartingTurn("white")}
+              >
+                後手
+              </button>
+            </div>
+          </div>
+          <div className="setup-row">
+            <span className="setup-label">持ち時間</span>
+            <div className="setup-options">
+              {TIME_PRESETS.map((preset) => {
+                const label = timePresetLabel(preset);
+                const isSelected = preset.mainSeconds === setupTimeControl.mainSeconds && preset.byoSeconds === setupTimeControl.byoSeconds;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    className={`setup-button ${isSelected ? "is-selected" : ""}`.trim()}
+                    onClick={() => setSetupTimeControl(preset)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <button type="button" className="start-match-button" onClick={startMatchFromSetup}>
+            対局開始
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app">
       <h1>Shogi Game</h1>
-      <section className="match-controls" aria-label="match controls">
-        <div className="match-controls-row">
-          <span className="match-controls-label">開始手番: {winnerLabel(startingTurn)}</span>
-          <button type="button" className="match-control-button" onClick={swapStartingTurn}>
-            先後入替
-          </button>
-        </div>
-        <div className="match-controls-row">
-          <span className="match-controls-label">持ち時間設定</span>
-          <div className="time-presets">
-            {TIME_PRESETS.map((preset) => {
-              const label = `${Math.floor(preset.mainSeconds / 60)}分+${preset.byoSeconds}秒`;
-              const selectedPreset = preset.mainSeconds === timeControl.mainSeconds && preset.byoSeconds === timeControl.byoSeconds;
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  className={`match-control-button ${selectedPreset ? "is-selected" : ""}`.trim()}
-                  onClick={() => applyTimeControl(preset)}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="match-controls-row">
-          <button type="button" className="match-control-button" onClick={() => setIsPaused((current) => !current)} disabled={gameOver}>
-            {isPaused ? "対局再開" : "対局中断"}
-          </button>
-          <button type="button" className="match-control-button" onClick={() => startNewGame()}>
-            設定で新規対局
-          </button>
-        </div>
+      <section className="game-actions" aria-label="game actions">
+        <button type="button" className="setup-button" onClick={() => setIsPaused((current) => !current)} disabled={gameOver}>
+          {isPaused ? "対局再開" : "対局中断"}
+        </button>
+        <button type="button" className="setup-button" onClick={returnToSetup}>
+          設定画面へ戻る
+        </button>
       </section>
-
       <section className="game-area">
         <div className="hand-anchor hand-anchor-white">
           <div className="clock-panel">
