@@ -1,23 +1,62 @@
-﻿import { type Piece as PieceType } from "../../../core/src/types";
+﻿import { type CSSProperties } from "react";
+import { type Piece as PieceType } from "../../../core/src/types";
 
 type PieceProps = {
   piece: PieceType;
 };
 
-const PIECE_LABELS: Record<PieceType["kind"], string> = {
-  king: "K",
-  rook: "R",
-  bishop: "B",
-  gold: "G",
-  silver: "S",
-  knight: "N",
-  lance: "L",
-  pawn: "P",
+type SpritePosition = {
+  col: number;
+  row: number;
 };
 
-export function Piece({ piece }: PieceProps) {
-  const className = `piece piece-${piece.color}`;
-  const promoted = piece.promoted ? "+" : "";
+const NORMAL_COLS: Record<PieceType["kind"], number> = {
+  king: 0,
+  rook: 1,
+  bishop: 2,
+  gold: 3,
+  silver: 4,
+  knight: 5,
+  lance: 6,
+  pawn: 7,
+};
 
-  return <span className={className}>{promoted + PIECE_LABELS[piece.kind]}</span>;
+const PROMOTED_COLS: Partial<Record<PieceType["kind"], number>> = {
+  rook: 1,
+  bishop: 2,
+  silver: 4,
+  knight: 5,
+  lance: 6,
+  pawn: 7,
+};
+
+const COLS = 8;
+const ROWS = 4;
+
+function spritePosition(piece: PieceType): SpritePosition {
+  const rowBase = piece.color === "black" ? 0 : 2;
+
+  if (piece.promoted && PROMOTED_COLS[piece.kind] !== undefined) {
+    return { col: PROMOTED_COLS[piece.kind] as number, row: rowBase + 1 };
+  }
+
+  return { col: NORMAL_COLS[piece.kind], row: rowBase };
+}
+
+function toPercent(index: number, maxIndex: number): string {
+  if (maxIndex === 0) {
+    return "0%";
+  }
+  return `${(index * 100) / maxIndex}%`;
+}
+
+export function Piece({ piece }: PieceProps) {
+  const { col, row } = spritePosition(piece);
+  const style: CSSProperties = {
+    backgroundImage: 'url("/将棋駒.jpg")',
+    backgroundSize: `${COLS * 100}% ${ROWS * 100}%`,
+    backgroundPosition: `${toPercent(col, COLS - 1)} ${toPercent(row, ROWS - 1)}`,
+  };
+
+  return <span className="piece" style={style} aria-label={`${piece.color}-${piece.kind}${piece.promoted ? "-promoted" : ""}`} />;
 }

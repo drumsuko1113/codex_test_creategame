@@ -1,17 +1,28 @@
 ﻿import { useMemo, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { createInitialGameState } from "../../core/src/initialPosition";
-import { type PieceKind, type Position } from "../../core/src/types";
+import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
+import { type BoardMove, type PieceKind, type Position } from "../../core/src/types";
 import { Board } from "./ui/Board";
 import { Hand } from "./ui/Hand";
+import { PromotionDialog } from "./ui/PromotionDialog";
+
+type PendingPromotion = {
+  move: BoardMove;
+};
 
 export function App() {
   const initialState = useMemo(() => createInitialGameState(), []);
   const [state, setState] = useState(initialState);
   const [selected, setSelected] = useState<Position | null>(null);
   const [selectedDrop, setSelectedDrop] = useState<PieceKind | null>(null);
+  const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
 
   const onSquareClick = (position: Position) => {
+    if (pendingPromotion) {
+      return;
+    }
+
     if (selectedDrop) {
       const result = applyMove(state, { drop: selectedDrop, to: position });
       if (result.ok) {
@@ -37,11 +48,39 @@ export function App() {
       return;
     }
 
-    const result = applyMove(state, { from: selected, to: position });
+    const movingPiece = state.board[selected.y][selected.x];
+    if (!movingPiece) {
+      setSelected(null);
+      return;
+    }
+
+    const move: BoardMove = { from: selected, to: position };
+    if (canChoosePromotion(movingPiece, move) && !shouldAutoPromote(movingPiece, move)) {
+      setPendingPromotion({ move });
+      setSelected(null);
+      return;
+    }
+
+    const result = applyMove(state, move);
     if (result.ok) {
       setState(result.value);
     }
     setSelected(null);
+  };
+
+  const onPromotionChoice = (promote: boolean) => {
+    if (!pendingPromotion) {
+      return;
+    }
+
+    const result = applyMove(state, { ...pendingPromotion.move, promote });
+    if (result.ok) {
+      setState(result.value);
+    }
+
+    setPendingPromotion(null);
+    setSelected(null);
+    setSelectedDrop(null);
   };
 
   return (
@@ -53,11 +92,15 @@ export function App() {
         turn={state.turn}
         selectedDrop={selectedDrop}
         onSelectDrop={(kind) => {
+          if (pendingPromotion) {
+            return;
+          }
           setSelected(null);
           setSelectedDrop((current) => (current === kind ? null : kind));
         }}
       />
       <p className="caption">Turn: {state.turn}</p>
+      <PromotionDialog isOpen={pendingPromotion !== null} onChoose={onPromotionChoice} />
     </main>
   );
 }
