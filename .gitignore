@@ -15,3 +15,8 @@ pnpm-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local reference assets (do not commit)
+/将棋盤の画像.jpg
+/将棋駒.jpg
+/将棋・駒を強めに指す03.mp3
