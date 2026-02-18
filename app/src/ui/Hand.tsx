@@ -2,7 +2,8 @@
 
 type HandProps = {
   hands: HandState;
-  turn: Color;
+  color: Color;
+  active: boolean;
   selectedDrop: PieceKind | null;
   onSelectDrop: (kind: PieceKind) => void;
 };
@@ -10,32 +11,25 @@ type HandProps = {
 const HAND_ORDER: PieceKind[] = ["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"];
 
 const HAND_LABELS: Record<PieceKind, string> = {
-  king: "K",
-  rook: "R",
-  bishop: "B",
-  gold: "G",
-  silver: "S",
-  knight: "N",
-  lance: "L",
-  pawn: "P",
+  king: "王",
+  rook: "飛",
+  bishop: "角",
+  gold: "金",
+  silver: "銀",
+  knight: "桂",
+  lance: "香",
+  pawn: "歩",
 };
 
-function HandRow({
-  color,
-  hands,
-  active,
-  selectedDrop,
-  onSelectDrop,
-}: {
-  color: Color;
-  hands: HandState;
-  active: boolean;
-  selectedDrop: PieceKind | null;
-  onSelectDrop: (kind: PieceKind) => void;
-}) {
+const PLAYER_LABEL: Record<Color, string> = {
+  black: "先手",
+  white: "後手",
+};
+
+export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandProps) {
   return (
-    <div className="hand-row">
-      <span className="hand-title">{color}</span>
+    <aside className="hand-panel" aria-label={`${PLAYER_LABEL[color]}の持ち駒`}>
+      <span className="hand-title">{PLAYER_LABEL[color]}の持ち駒</span>
       <div className="hand-pieces">
         {HAND_ORDER.map((kind) => {
           const count = hands[color][kind] ?? 0;
@@ -55,15 +49,6 @@ function HandRow({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-export function Hand({ hands, turn, selectedDrop, onSelectDrop }: HandProps) {
-  return (
-    <aside className="hands" aria-label="Hands">
-      <HandRow color="black" hands={hands} active={turn === "black"} selectedDrop={selectedDrop} onSelectDrop={onSelectDrop} />
-      <HandRow color="white" hands={hands} active={turn === "white"} selectedDrop={selectedDrop} onSelectDrop={onSelectDrop} />
     </aside>
   );
 }

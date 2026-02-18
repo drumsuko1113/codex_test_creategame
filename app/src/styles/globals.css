@@ -13,12 +13,19 @@ body {
 }
 
 .app {
-  max-width: 720px;
+  max-width: 960px;
   margin: 0 auto;
   padding: 24px;
 }
 
+.game-area {
+  position: relative;
+  width: min(620px, 100%);
+  margin: 0 auto;
+}
+
 .board {
+  width: 100%;
   display: grid;
   grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 2px;
@@ -52,15 +59,26 @@ body {
 
 .caption {
   margin-top: 12px;
+  text-align: center;
+  font-weight: 700;
 }
 
-.hands {
-  margin-top: 16px;
-  display: grid;
-  gap: 8px;
+.hand-anchor {
+  position: absolute;
+  width: 180px;
 }
 
-.hand-row {
+.hand-anchor-white {
+  left: -188px;
+  top: 0;
+}
+
+.hand-anchor-black {
+  right: -188px;
+  bottom: 0;
+}
+
+.hand-panel {
   display: grid;
   gap: 6px;
   padding: 10px;
@@ -69,17 +87,18 @@ body {
 }
 
 .hand-title {
-  text-transform: capitalize;
   font-weight: 700;
+  font-size: 14px;
 }
 
 .hand-pieces {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 6px;
 }
 
 .hand-piece {
+  text-align: left;
   border: 1px solid #664c2d;
   background: #fff7e3;
   padding: 4px 8px;
@@ -88,4 +107,32 @@ body {
 
 .hand-piece.is-selected {
   outline: 2px solid #2878ff;
+}
+
+@media (max-width: 980px) {
+  .game-area {
+    display: grid;
+    gap: 10px;
+  }
+
+  .hand-anchor {
+    position: static;
+    width: auto;
+  }
+
+  .hand-anchor-white {
+    order: 1;
+  }
+
+  .board {
+    order: 2;
+  }
+
+  .hand-anchor-black {
+    order: 3;
+  }
+
+  .hand-pieces {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
