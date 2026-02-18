@@ -1,4 +1,4 @@
-﻿import { type Move, type Piece } from "./types";
+﻿import { type BoardMove, type Piece } from "./types";
 
 const PROMOTABLE_PIECES: Piece["kind"][] = ["rook", "bishop", "silver", "knight", "lance", "pawn"];
 
@@ -10,7 +10,7 @@ function isInPromotionZone(piece: Piece, y: number): boolean {
   return piece.color === "black" ? y <= 2 : y >= 6;
 }
 
-export function canChoosePromotion(piece: Piece, move: Move): boolean {
+export function canChoosePromotion(piece: Piece, move: BoardMove): boolean {
   if (piece.promoted || !canPromote(piece)) {
     return false;
   }
@@ -18,7 +18,7 @@ export function canChoosePromotion(piece: Piece, move: Move): boolean {
   return isInPromotionZone(piece, move.from.y) || isInPromotionZone(piece, move.to.y);
 }
 
-export function shouldAutoPromote(piece: Piece, move: Move): boolean {
+export function shouldAutoPromote(piece: Piece, move: BoardMove): boolean {
   if (piece.color === "black") {
     if (piece.kind === "pawn" || piece.kind === "lance") {
       return move.to.y === 0;
@@ -40,7 +40,7 @@ export function shouldAutoPromote(piece: Piece, move: Move): boolean {
 
 export function resolvePromotion(
   piece: Piece,
-  move: Move,
+  move: BoardMove,
 ): { ok: true; promoted: boolean } | { ok: false; reason: string } {
   if (!canPromote(piece)) {
     if (move.promote) {
