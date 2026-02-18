@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { findKingPosition, isInCheck } from "../../core/src/check";
 import { isCheckmate } from "../../core/src/checkmate";
@@ -19,6 +19,18 @@ type MoveRecord = {
   id: number;
   text: string;
   to: Position | null;
+};
+
+type ScreenMode = "setup" | "game";
+
+type TimeControl = {
+  mainSeconds: number;
+  byoSeconds: number;
+};
+
+type ClockState = {
+  main: Record<Color, number>;
+  byo: Record<Color, number>;
 };
 
 const PIECE_LABEL: Record<PieceKind, string> = {
@@ -43,6 +55,22 @@ const PROMOTED_PIECE_LABEL: Partial<Record<PieceKind, string>> = {
 
 const FILE_LABEL = ["９", "８", "７", "６", "５", "４", "３", "２", "１"];
 const RANK_LABEL = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+const TIME_PRESETS: TimeControl[] = [
+  { mainSeconds: 300, byoSeconds: 30 },
+  { mainSeconds: 600, byoSeconds: 30 },
+  { mainSeconds: 900, byoSeconds: 60 },
+];
+
+function formatSeconds(seconds: number): string {
+  const s = Math.max(0, seconds);
+  const min = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+function timePresetLabel(timeControl: TimeControl): string {
+  return `${Math.floor(timeControl.mainSeconds / 60)}分+${timeControl.byoSeconds}秒`;
+}
 
 function oppositeColor(color: Color): Color {
   return color === "black" ? "white" : "black";
@@ -111,6 +139,13 @@ function winnerLabel(color: Color): string {
   return color === "black" ? "先手" : "後手";
 }
 
+function createClockState(control: TimeControl): ClockState {
+  return {
+    main: { black: control.mainSeconds, white: control.mainSeconds },
+    byo: { black: control.byoSeconds, white: control.byoSeconds },
+  };
+}
+
 function findPerpetualCheckLoser(
   stateHistory: GameState[],
   checkingHistory: Array<Color | null>,
@@ -150,8 +185,17 @@ function findPerpetualCheckLoser(
 }
 
 export function App() {
+  const initialTimeControl = TIME_PRESETS[0];
   const initialState = useMemo(() => createInitialGameState(), []);
-  const [state, setState] = useState(initialState);
+
+  const [screenMode, setScreenMode] = useState<ScreenMode>("setup");
+  const [setupStartingTurn, setSetupStartingTurn] = useState<Color>("black");
+  const [setupTimeControl, setSetupTimeControl] = useState<TimeControl>(initialTimeControl);
+  const [startingTurn, setStartingTurn] = useState<Color>("black");
+  const [timeControl, setTimeControl] = useState<TimeControl>(initialTimeControl);
+
+  const [state, setState] = useState<GameState>(initialState);
+  const [clockState, setClockState] = useState<ClockState>(() => createClockState(initialTimeControl));
   const [stateHistory, setStateHistory] = useState<GameState[]>([initialState]);
   const [checkingHistory, setCheckingHistory] = useState<Array<Color | null>>([]);
   const [selected, setSelected] = useState<Position | null>(null);
@@ -160,8 +204,58 @@ export function App() {
   const [winner, setWinner] = useState<Color | null>(null);
   const [resultText, setResultText] = useState<string | null>(null);
   const [gameOver, setGameOver] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
+
+  useEffect(() => {
+    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      setClockState((current) => {
+        const next: ClockState = {
+          main: { ...current.main },
+          byo: { ...current.byo },
+        };
+        const active = state.turn;
+
+        if (next.main[active] > 0) {
+          next.main[active] -= 1;
+        } else if (timeControl.byoSeconds > 0 && next.byo[active] > 0) {
+          next.byo[active] -= 1;
+        }
+
+        return next;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [screenMode, state.turn, gameOver, isPaused, pendingPromotion, timeControl.byoSeconds]);
+
+  useEffect(() => {
+    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
+      return;
+    }
+
+    const active = state.turn;
+    const isMainExpired = clockState.main[active] <= 0;
+    const isByoExpired = timeControl.byoSeconds === 0 || clockState.byo[active] <= 0;
+
+    if (!isMainExpired || !isByoExpired) {
+      return;
+    }
+
+    const nextWinner = oppositeColor(active);
+    setWinner(nextWinner);
+    setResultText(`時間切れにより${winnerLabel(nextWinner)}の勝ちです`);
+    setGameOver(true);
+    setShowRestartDialog(true);
+    setSelected(null);
+    setSelectedDrop(null);
+    setPendingPromotion(null);
+  }, [screenMode, clockState, gameOver, isPaused, pendingPromotion, state.turn, timeControl.byoSeconds]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
@@ -171,7 +265,7 @@ export function App() {
   }, [state]);
 
   const legalTargets = useMemo(() => {
-    if (!selected || gameOver || pendingPromotion || selectedDrop) {
+    if (screenMode !== "game" || !selected || gameOver || isPaused || pendingPromotion || selectedDrop) {
       return [];
     }
 
@@ -199,7 +293,7 @@ export function App() {
     }
 
     return targets;
-  }, [selected, gameOver, pendingPromotion, selectedDrop, state]);
+  }, [screenMode, selected, gameOver, isPaused, pendingPromotion, selectedDrop, state]);
 
   const applyAndJudge = (move: BoardMove | { drop: PieceKind; to: Position }) => {
     const result = applyMove(state, move);
@@ -212,6 +306,10 @@ export function App() {
     const text = formatMoveText(state, move, previousTo);
     setMoveHistory((prev) => [...prev, { id: moveNumber, text, to: move.to }]);
     setState(result.value);
+    setClockState((current) => ({
+      main: { ...current.main },
+      byo: { ...current.byo, [state.turn]: timeControl.byoSeconds },
+    }));
 
     const checkingColor = isInCheck(result.value) ? state.turn : null;
     const nextStateHistory = [...stateHistory, result.value];
@@ -254,7 +352,7 @@ export function App() {
   };
 
   const onSquareClick = (position: Position) => {
-    if (gameOver || pendingPromotion) {
+    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
       return;
     }
 
@@ -309,10 +407,16 @@ export function App() {
     setSelectedDrop(null);
   };
 
-  const startNewGame = () => {
-    const nextInitial = createInitialGameState();
-    setState(nextInitial);
-    setStateHistory([nextInitial]);
+  const startNewGame = (nextTurn: Color = startingTurn, nextTimeControl: TimeControl = timeControl) => {
+    const baseState = createInitialGameState();
+    const nextInitialState: GameState = {
+      ...baseState,
+      turn: nextTurn,
+    };
+
+    setState(nextInitialState);
+    setClockState(createClockState(nextTimeControl));
+    setStateHistory([nextInitialState]);
     setCheckingHistory([]);
     setSelected(null);
     setSelectedDrop(null);
@@ -320,12 +424,29 @@ export function App() {
     setWinner(null);
     setResultText(null);
     setGameOver(false);
+    setIsPaused(false);
     setShowRestartDialog(false);
     setMoveHistory([]);
   };
 
+  const startMatchFromSetup = () => {
+    setStartingTurn(setupStartingTurn);
+    setTimeControl(setupTimeControl);
+    startNewGame(setupStartingTurn, setupTimeControl);
+    setScreenMode("game");
+  };
+
+  const returnToSetup = () => {
+    setScreenMode("setup");
+    setShowRestartDialog(false);
+    setPendingPromotion(null);
+    setSelected(null);
+    setSelectedDrop(null);
+    setIsPaused(false);
+  };
+
   const resign = () => {
-    if (gameOver) {
+    if (screenMode !== "game" || gameOver || isPaused) {
       return;
     }
 
@@ -342,18 +463,83 @@ export function App() {
     setPendingPromotion(null);
   };
 
+  if (screenMode === "setup") {
+    return (
+      <main className="app">
+        <h1>Shogi Game</h1>
+        <section className="start-screen" aria-label="match setup">
+          <h2>対局設定</h2>
+          <div className="setup-row">
+            <span className="setup-label">開始手番</span>
+            <div className="setup-options">
+              <button
+                type="button"
+                className={`setup-button ${setupStartingTurn === "black" ? "is-selected" : ""}`.trim()}
+                onClick={() => setSetupStartingTurn("black")}
+              >
+                先手
+              </button>
+              <button
+                type="button"
+                className={`setup-button ${setupStartingTurn === "white" ? "is-selected" : ""}`.trim()}
+                onClick={() => setSetupStartingTurn("white")}
+              >
+                後手
+              </button>
+            </div>
+          </div>
+          <div className="setup-row">
+            <span className="setup-label">持ち時間</span>
+            <div className="setup-options">
+              {TIME_PRESETS.map((preset) => {
+                const label = timePresetLabel(preset);
+                const isSelected = preset.mainSeconds === setupTimeControl.mainSeconds && preset.byoSeconds === setupTimeControl.byoSeconds;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    className={`setup-button ${isSelected ? "is-selected" : ""}`.trim()}
+                    onClick={() => setSetupTimeControl(preset)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <button type="button" className="start-match-button" onClick={startMatchFromSetup}>
+            対局開始
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app">
       <h1>Shogi Game</h1>
+      <section className="game-actions" aria-label="game actions">
+        <button type="button" className="setup-button" onClick={() => setIsPaused((current) => !current)} disabled={gameOver}>
+          {isPaused ? "対局再開" : "対局中断"}
+        </button>
+        <button type="button" className="setup-button" onClick={returnToSetup}>
+          設定画面へ戻る
+        </button>
+      </section>
       <section className="game-area">
         <div className="hand-anchor hand-anchor-white">
+          <div className="clock-panel">
+            <p className="clock-title">後手時計</p>
+            <p className="clock-main">{formatSeconds(clockState.main.white)}</p>
+            <p className="clock-sub">秒読み {formatSeconds(clockState.byo.white)}</p>
+          </div>
           <Hand
             hands={state.hands}
             color="white"
-            active={!gameOver && state.turn === "white"}
+            active={!gameOver && !isPaused && state.turn === "white"}
             selectedDrop={selectedDrop}
             onSelectDrop={(kind) => {
-              if (gameOver || pendingPromotion) {
+              if (gameOver || isPaused || pendingPromotion) {
                 return;
               }
               setSelected(null);
@@ -379,13 +565,18 @@ export function App() {
         />
 
         <div className="hand-anchor hand-anchor-black">
+          <div className="clock-panel">
+            <p className="clock-title">先手時計</p>
+            <p className="clock-main">{formatSeconds(clockState.main.black)}</p>
+            <p className="clock-sub">秒読み {formatSeconds(clockState.byo.black)}</p>
+          </div>
           <Hand
             hands={state.hands}
             color="black"
-            active={!gameOver && state.turn === "black"}
+            active={!gameOver && !isPaused && state.turn === "black"}
             selectedDrop={selectedDrop}
             onSelectDrop={(kind) => {
-              if (gameOver || pendingPromotion) {
+              if (gameOver || isPaused || pendingPromotion) {
                 return;
               }
               setSelected(null);
@@ -394,13 +585,13 @@ export function App() {
           />
         </div>
       </section>
-      <p className="caption">{gameOver ? `終局: ${resultText}` : `手番: ${winnerLabel(state.turn)}`}</p>
+      <p className="caption">{gameOver ? `終局: ${resultText}` : isPaused ? "対局中断中" : `手番: ${winnerLabel(state.turn)}`}</p>
       <div className="actions">
-        <button type="button" className="resign-button" disabled={gameOver} onClick={resign}>
+        <button type="button" className="resign-button" disabled={gameOver || isPaused} onClick={resign}>
           投了
         </button>
         {gameOver && !showRestartDialog ? (
-          <button type="button" className="restart-button" onClick={startNewGame}>
+          <button type="button" className="restart-button" onClick={() => startNewGame()}>
             再対局
           </button>
         ) : null}
@@ -410,7 +601,7 @@ export function App() {
       <GameOverDialog
         isOpen={showRestartDialog && gameOver}
         resultText={resultText}
-        onRestart={startNewGame}
+        onRestart={() => startNewGame()}
         onClose={() => setShowRestartDialog(false)}
       />
     </main>
