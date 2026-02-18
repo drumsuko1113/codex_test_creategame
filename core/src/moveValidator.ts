@@ -1,10 +1,14 @@
-import { type BoardState, type Move, type GameState, type Piece } from "./types";
+﻿import { type BoardMove, type BoardState, type Move, type GameState, type Piece } from "./types";
+
+function isDropMove(move: Move): move is { to: { x: number; y: number }; drop: Piece["kind"] } {
+  return "drop" in move;
+}
 
 function isInsideBoard(x: number, y: number): boolean {
   return x >= 0 && x < 9 && y >= 0 && y < 9;
 }
 
-function isPathClear(board: BoardState, move: Move): boolean {
+function isPathClear(board: BoardState, move: BoardMove): boolean {
   const dx = move.to.x - move.from.x;
   const dy = move.to.y - move.from.y;
   const stepX = Math.sign(dx);
@@ -22,7 +26,7 @@ function isPathClear(board: BoardState, move: Move): boolean {
   return true;
 }
 
-function isGoldLikeMove(piece: Piece, move: Move): boolean {
+function isGoldLikeMove(piece: Piece, move: BoardMove): boolean {
   const dx = move.to.x - move.from.x;
   const dy = move.to.y - move.from.y;
   const forward = piece.color === "black" ? -dy : dy;
@@ -38,25 +42,25 @@ function isGoldLikeMove(piece: Piece, move: Move): boolean {
   return forward === -1 && dx === 0;
 }
 
-function isKingMove(move: Move): boolean {
+function isKingMove(move: BoardMove): boolean {
   const dx = Math.abs(move.to.x - move.from.x);
   const dy = Math.abs(move.to.y - move.from.y);
   return dx <= 1 && dy <= 1;
 }
 
-function isRookMove(move: Move): boolean {
+function isRookMove(move: BoardMove): boolean {
   const dx = Math.abs(move.to.x - move.from.x);
   const dy = Math.abs(move.to.y - move.from.y);
   return (dx === 0 || dy === 0) && !(dx === 0 && dy === 0);
 }
 
-function isBishopMove(move: Move): boolean {
+function isBishopMove(move: BoardMove): boolean {
   const dx = Math.abs(move.to.x - move.from.x);
   const dy = Math.abs(move.to.y - move.from.y);
   return dx === dy && dx !== 0;
 }
 
-function isPieceMovePatternLegal(state: GameState, piece: Piece, move: Move): boolean {
+function isPieceMovePatternLegal(state: GameState, piece: Piece, move: BoardMove): boolean {
   const dx = move.to.x - move.from.x;
   const dy = move.to.y - move.from.y;
   const forward = piece.color === "black" ? -dy : dy;
@@ -114,7 +118,62 @@ function isPieceMovePatternLegal(state: GameState, piece: Piece, move: Move): bo
   return false;
 }
 
+function hasUnpromotedPawnInFile(state: GameState, fileX: number): boolean {
+  for (let y = 0; y < 9; y += 1) {
+    const piece = state.board[y][fileX];
+    if (piece?.kind === "pawn" && piece.color === state.turn && !piece.promoted) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function canDropOnRank(pieceKind: Piece["kind"], color: GameState["turn"], y: number): boolean {
+  if (pieceKind === "pawn" || pieceKind === "lance") {
+    return color === "black" ? y > 0 : y < 8;
+  }
+
+  if (pieceKind === "knight") {
+    return color === "black" ? y > 1 : y < 7;
+  }
+
+  return true;
+}
+
+function isDropLegal(state: GameState, move: Extract<Move, { drop: Piece["kind"] }>): boolean {
+  if (!isInsideBoard(move.to.x, move.to.y)) {
+    return false;
+  }
+
+  if (move.drop === "king") {
+    return false;
+  }
+
+  if (state.board[move.to.y][move.to.x]) {
+    return false;
+  }
+
+  const handCount = state.hands[state.turn][move.drop] ?? 0;
+  if (handCount <= 0) {
+    return false;
+  }
+
+  if (!canDropOnRank(move.drop, state.turn, move.to.y)) {
+    return false;
+  }
+
+  if (move.drop === "pawn" && hasUnpromotedPawnInFile(state, move.to.x)) {
+    return false;
+  }
+
+  return true;
+}
+
 export function isMoveLegal(state: GameState, move: Move): boolean {
+  if (isDropMove(move)) {
+    return isDropLegal(state, move);
+  }
+
   if (!isInsideBoard(move.from.x, move.from.y) || !isInsideBoard(move.to.x, move.to.y)) {
     return false;
   }

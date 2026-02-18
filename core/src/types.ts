@@ -31,8 +31,15 @@ export type GameState = {
   turn: Color;
 };
 
-export type Move = {
+export type BoardMove = {
   from: Position;
   to: Position;
   promote?: boolean;
 };
+
+export type DropMove = {
+  to: Position;
+  drop: PieceKind;
+};
+
+export type Move = BoardMove | DropMove;

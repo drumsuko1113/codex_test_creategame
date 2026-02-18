@@ -6,6 +6,10 @@ type ApplyResult =
   | { ok: true; value: GameState }
   | { ok: false; reason: string };
 
+function isDropMove(move: Move): move is Extract<Move, { drop: Piece["kind"] }> {
+  return "drop" in move;
+}
+
 function demote(piece: Piece): Piece {
   return {
     ...piece,
@@ -27,6 +31,30 @@ export function applyMove(state: GameState, move: Move): ApplyResult {
     black: { ...state.hands.black },
     white: { ...state.hands.white },
   };
+
+  if (isDropMove(move)) {
+    const handCount = nextHands[state.turn][move.drop] ?? 0;
+    if (handCount <= 0) {
+      return { ok: false, reason: "No piece in hand" };
+    }
+
+    nextHands[state.turn][move.drop] = handCount - 1;
+    nextBoard[move.to.y][move.to.x] = {
+      kind: move.drop,
+      color: state.turn,
+      promoted: false,
+    };
+
+    return {
+      ok: true,
+      value: {
+        board: nextBoard,
+        hands: nextHands,
+        turn: flipTurn(state.turn),
+      },
+    };
+  }
+
   const movingPiece = nextBoard[move.from.y][move.from.x];
 
   if (!movingPiece) {
