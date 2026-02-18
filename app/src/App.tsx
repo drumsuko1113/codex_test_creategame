@@ -546,7 +546,7 @@ export function App() {
       <section className="game-area">
         <div className="hand-anchor hand-anchor-white">
           <div className="clock-panel">
-            <p className="clock-title">後手時計</p>
+            <p className="clock-title">持ち時間（後手）</p>
             <p className="clock-main">{formatSeconds(clockState.main.white)}</p>
             <p className="clock-sub">秒読み {formatSeconds(clockState.byo.white)}</p>
           </div>
@@ -583,7 +583,7 @@ export function App() {
 
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
-            <p className="clock-title">先手時計</p>
+            <p className="clock-title">持ち時間（先手）</p>
             <p className="clock-main">{formatSeconds(clockState.main.black)}</p>
             <p className="clock-sub">秒読み {formatSeconds(clockState.byo.black)}</p>
           </div>
