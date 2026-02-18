@@ -162,6 +162,11 @@ export function App() {
         <button type="button" className="resign-button" disabled={winner !== null} onClick={resign}>
           投了
         </button>
+        {winner && !showRestartDialog ? (
+          <button type="button" className="restart-button" onClick={startNewGame}>
+            再対局
+          </button>
+        ) : null}
       </div>
       <PromotionDialog isOpen={pendingPromotion !== null} onChoose={onPromotionChoice} />
       <GameOverDialog
