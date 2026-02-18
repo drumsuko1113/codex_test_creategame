@@ -1,4 +1,5 @@
-﻿import { canPromote, shouldAutoPromote } from "../src/promotion";
+import { describe, expect, it } from "vitest";
+import { canPromote, shouldAutoPromote } from "../src/promotion";
 
 describe("promotion", () => {
   it("allows pawn promotion", () => {
