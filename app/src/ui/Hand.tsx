@@ -41,7 +41,7 @@ function handPieceSpriteStyle(color: Color, kind: PieceKind): CSSProperties {
   const row = color === "black" ? 0 : 2;
 
   return {
-    backgroundImage: 'url("/将棋駒.jpg")',
+    backgroundImage: 'url("/将棋駒.png")',
     backgroundSize: `${cols * 100}% ${rows * 100}%`,
     backgroundPosition: `${toPercent(col, cols - 1)} ${toPercent(row, rows - 1)}`,
   };
