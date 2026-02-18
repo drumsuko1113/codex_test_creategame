@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { findKingPosition, isInCheck } from "../../core/src/check";
 import { isCheckmate } from "../../core/src/checkmate";
@@ -55,6 +55,54 @@ export function App() {
   useEffect(() => {
     pieceSoundRef.current = new Audio("/piece-sound.mp3");
     pieceSoundRef.current.preload = "auto";
+    return () => {
+      if (pieceSoundRef.current) {
+        pieceSoundRef.current.pause();
+      }
+      pieceSoundRef.current = null;
+    };
+  }, []);
+
+  const clearSelections = useCallback(() => {
+    setSelected(null);
+    setSelectedDrop(null);
+    setPendingPromotion(null);
+  }, []);
+
+  const finishGame = useCallback(
+    (nextWinner: Color | null, message: string) => {
+      setWinner(nextWinner);
+      setResultText(message);
+      setGameOver(true);
+      setShowRestartDialog(true);
+      clearSelections();
+    },
+    [clearSelections],
+  );
+
+  const toggleDropSelection = useCallback(
+    (kind: PieceKind) => {
+      if (gameOver || isPaused || pendingPromotion) {
+        return;
+      }
+      setSelected(null);
+      setSelectedDrop((current) => (current === kind ? null : kind));
+    },
+    [gameOver, isPaused, pendingPromotion],
+  );
+
+  const onSetupMainMinutesChange = useCallback((value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    setSetupMainMinutes(Number.isNaN(parsed) ? 0 : Math.max(0, parsed));
+  }, []);
+
+  const onSetupByoSecondsChange = useCallback((value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) {
+      setSetupByoSeconds(0);
+      return;
+    }
+    setSetupByoSeconds(Math.max(0, Math.floor(parsed / 10) * 10));
   }, []);
 
   useEffect(() => {
@@ -97,14 +145,8 @@ export function App() {
     }
 
     const nextWinner = oppositeColor(active);
-    setWinner(nextWinner);
-    setResultText(`時間切れにより${winnerLabel(nextWinner)}の勝ちです`);
-    setGameOver(true);
-    setShowRestartDialog(true);
-    setSelected(null);
-    setSelectedDrop(null);
-    setPendingPromotion(null);
-  }, [screenMode, clockState, gameOver, isPaused, pendingPromotion, state.turn, timeControl.byoSeconds]);
+    finishGame(nextWinner, `時間切れにより${winnerLabel(nextWinner)}の勝ちです`);
+  }, [screenMode, clockState, gameOver, isPaused, pendingPromotion, state.turn, timeControl.byoSeconds, finishGame]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
@@ -173,10 +215,7 @@ export function App() {
 
     if (isCheckmate(result.value)) {
       const nextWinner = oppositeColor(result.value.turn);
-      setWinner(nextWinner);
-      setResultText(`${winnerLabel(nextWinner)}の勝ちです`);
-      setGameOver(true);
-      setShowRestartDialog(true);
+      finishGame(nextWinner, `${winnerLabel(nextWinner)}の勝ちです`);
       return;
     }
 
@@ -193,15 +232,10 @@ export function App() {
 
       if (foulLoser) {
         const nextWinner = oppositeColor(foulLoser);
-        setWinner(nextWinner);
-        setResultText(`連続王手の千日手により${winnerLabel(nextWinner)}の勝ちです`);
+        finishGame(nextWinner, `連続王手の千日手により${winnerLabel(nextWinner)}の勝ちです`);
       } else {
-        setWinner(null);
-        setResultText("千日手（引き分け）です");
+        finishGame(null, "千日手（引き分け）です");
       }
-
-      setGameOver(true);
-      setShowRestartDialog(true);
     }
   };
 
@@ -212,8 +246,7 @@ export function App() {
 
     if (selectedDrop) {
       applyAndJudge({ drop: selectedDrop, to: position });
-      setSelectedDrop(null);
-      setSelected(null);
+      clearSelections();
       return;
     }
 
@@ -255,10 +288,7 @@ export function App() {
     }
 
     applyAndJudge({ ...pendingPromotion.move, promote });
-
-    setPendingPromotion(null);
-    setSelected(null);
-    setSelectedDrop(null);
+    clearSelections();
   };
 
   const startNewGame = (nextTurn: Color = startingTurn, nextTimeControl: TimeControl = timeControl) => {
@@ -272,9 +302,7 @@ export function App() {
     setClockState(createClockState(nextTimeControl));
     setStateHistory([nextInitialState]);
     setCheckingHistory([]);
-    setSelected(null);
-    setSelectedDrop(null);
-    setPendingPromotion(null);
+    clearSelections();
     setWinner(null);
     setResultText(null);
     setGameOver(false);
@@ -294,9 +322,7 @@ export function App() {
   const returnToSetup = () => {
     setScreenMode("setup");
     setShowRestartDialog(false);
-    setPendingPromotion(null);
-    setSelected(null);
-    setSelectedDrop(null);
+    clearSelections();
     setIsPaused(false);
   };
 
@@ -309,13 +335,7 @@ export function App() {
     const nextWinner = oppositeColor(loser);
     const moveNumber = moveHistory.length + 1;
     setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(loser)}投了`, to: null }]);
-    setWinner(nextWinner);
-    setResultText(`${winnerLabel(nextWinner)}の勝ちです`);
-    setGameOver(true);
-    setShowRestartDialog(true);
-    setSelected(null);
-    setSelectedDrop(null);
-    setPendingPromotion(null);
+    finishGame(nextWinner, `${winnerLabel(nextWinner)}の勝ちです`);
   };
 
   if (screenMode === "setup") {
@@ -356,10 +376,7 @@ export function App() {
                 min={0}
                 step={1}
                 value={setupMainMinutes}
-                onChange={(event) => {
-                  const value = Number.parseInt(event.target.value, 10);
-                  setSetupMainMinutes(Number.isNaN(value) ? 0 : Math.max(0, value));
-                }}
+                onChange={(event) => onSetupMainMinutesChange(event.target.value)}
               />
               <label className="setup-input-label" htmlFor="byo-seconds-input">
                 秒読み（秒）
@@ -371,14 +388,7 @@ export function App() {
                 min={0}
                 step={10}
                 value={setupByoSeconds}
-                onChange={(event) => {
-                  const value = Number.parseInt(event.target.value, 10);
-                  if (Number.isNaN(value)) {
-                    setSetupByoSeconds(0);
-                    return;
-                  }
-                  setSetupByoSeconds(Math.max(0, Math.floor(value / 10) * 10));
-                }}
+                onChange={(event) => onSetupByoSecondsChange(event.target.value)}
               />
             </div>
           </div>
@@ -412,13 +422,7 @@ export function App() {
             color="white"
             active={!gameOver && !isPaused && state.turn === "white"}
             selectedDrop={selectedDrop}
-            onSelectDrop={(kind) => {
-              if (gameOver || isPaused || pendingPromotion) {
-                return;
-              }
-              setSelected(null);
-              setSelectedDrop((current) => (current === kind ? null : kind));
-            }}
+            onSelectDrop={toggleDropSelection}
           />
           <section className="history-panel" aria-label="move history">
             <h2>棋譜</h2>
@@ -448,13 +452,7 @@ export function App() {
             color="black"
             active={!gameOver && !isPaused && state.turn === "black"}
             selectedDrop={selectedDrop}
-            onSelectDrop={(kind) => {
-              if (gameOver || isPaused || pendingPromotion) {
-                return;
-              }
-              setSelected(null);
-              setSelectedDrop((current) => (current === kind ? null : kind));
-            }}
+            onSelectDrop={toggleDropSelection}
           />
         </div>
       </section>
