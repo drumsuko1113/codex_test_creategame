@@ -45,6 +45,28 @@ describe("drop move", () => {
     expect(isMoveLegal(state, { drop: "knight", to: { x: 4, y: 0 } })).toBe(false);
   });
 
+  it("rejects pawn-drop mate", () => {
+    const state = createEmptyState("black");
+    state.hands.black.pawn = 1;
+    state.board[8][8] = piece("king", "black");
+    state.board[0][0] = piece("king", "white");
+    state.board[0][1] = piece("lance", "white");
+    state.board[1][2] = piece("rook", "black");
+
+    const result = applyMove(state, { drop: "pawn", to: { x: 0, y: 1 } });
+    expect(result.ok).toBe(false);
+  });
+
+  it("applies non-mating pawn drop", () => {
+    const state = createEmptyState("black");
+    state.hands.black.pawn = 1;
+    state.board[8][8] = piece("king", "black");
+    state.board[0][0] = piece("king", "white");
+
+    const result = applyMove(state, { drop: "pawn", to: { x: 4, y: 4 } });
+    expect(result.ok).toBe(true);
+  });
+
   it("applies drop move and decrements hand", () => {
     const state = createEmptyState("black");
     state.hands.black.gold = 1;
