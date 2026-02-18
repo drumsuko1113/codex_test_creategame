@@ -78,8 +78,8 @@ body {
 }
 
 .history-panel {
-  margin: 18px auto 0;
-  width: min(620px, 100%);
+  margin-top: 10px;
+  width: 100%;
   border: 1px solid #6e5838;
   background: #f7e9c9;
   padding: 10px 12px;
@@ -93,7 +93,7 @@ body {
 .history-list {
   margin: 0;
   padding-left: 20px;
-  max-height: 180px;
+  max-height: 220px;
   overflow: auto;
 }
 

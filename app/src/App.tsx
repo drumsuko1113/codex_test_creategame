@@ -276,6 +276,14 @@ export function App() {
               setSelectedDrop((current) => (current === kind ? null : kind));
             }}
           />
+          <section className="history-panel" aria-label="move history">
+            <h2>棋譜</h2>
+            <ol className="history-list">
+              {moveHistory.map((record) => (
+                <li key={record.id}>{record.text}</li>
+              ))}
+            </ol>
+          </section>
         </div>
 
         <Board
@@ -313,15 +321,6 @@ export function App() {
           </button>
         ) : null}
       </div>
-
-      <section className="history-panel" aria-label="move history">
-        <h2>棋譜</h2>
-        <ol className="history-list">
-          {moveHistory.map((record) => (
-            <li key={record.id}>{record.text}</li>
-          ))}
-        </ol>
-      </section>
 
       <PromotionDialog isOpen={pendingPromotion !== null} onChoose={onPromotionChoice} />
       <GameOverDialog
