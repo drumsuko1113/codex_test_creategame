@@ -49,6 +49,25 @@ body {
   gap: 6px;
 }
 
+.setup-input-grid {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: 8px;
+  align-items: center;
+}
+
+.setup-input-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.setup-number-input {
+  border: 1px solid #5f4a2e;
+  background: #fff7e3;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+
 .setup-button {
   border: 1px solid #5f4a2e;
   background: #f4e3bf;
@@ -228,12 +247,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.clock-sub {
-  margin: 2px 0 0;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
 .hand-title {
   font-weight: 700;
   font-size: 14px;
@@ -356,6 +369,10 @@ body {
 }
 
 @media (max-width: 980px) {
+  .setup-input-grid {
+    grid-template-columns: 1fr;
+  }
+
   .game-area {
     display: grid;
     gap: 10px;

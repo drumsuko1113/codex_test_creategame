@@ -55,11 +55,7 @@ const PROMOTED_PIECE_LABEL: Partial<Record<PieceKind, string>> = {
 
 const FILE_LABEL = ["９", "８", "７", "６", "５", "４", "３", "２", "１"];
 const RANK_LABEL = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
-const TIME_PRESETS: TimeControl[] = [
-  { mainSeconds: 300, byoSeconds: 30 },
-  { mainSeconds: 600, byoSeconds: 30 },
-  { mainSeconds: 900, byoSeconds: 60 },
-];
+const DEFAULT_TIME_CONTROL: TimeControl = { mainSeconds: 600, byoSeconds: 30 };
 
 function formatSeconds(seconds: number): string {
   const s = Math.max(0, seconds);
@@ -68,8 +64,11 @@ function formatSeconds(seconds: number): string {
   return `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
-function timePresetLabel(timeControl: TimeControl): string {
-  return `${Math.floor(timeControl.mainSeconds / 60)}分+${timeControl.byoSeconds}秒`;
+function formatClockText(mainSeconds: number, byoSeconds: number): string {
+  if (mainSeconds > 0) {
+    return formatSeconds(mainSeconds);
+  }
+  return `秒読み ${formatSeconds(byoSeconds)}`;
 }
 
 function oppositeColor(color: Color): Color {
@@ -185,12 +184,13 @@ function findPerpetualCheckLoser(
 }
 
 export function App() {
-  const initialTimeControl = TIME_PRESETS[0];
+  const initialTimeControl = DEFAULT_TIME_CONTROL;
   const initialState = useMemo(() => createInitialGameState(), []);
 
   const [screenMode, setScreenMode] = useState<ScreenMode>("setup");
   const [setupStartingTurn, setSetupStartingTurn] = useState<Color>("black");
-  const [setupTimeControl, setSetupTimeControl] = useState<TimeControl>(initialTimeControl);
+  const [setupMainMinutes, setSetupMainMinutes] = useState<number>(Math.floor(initialTimeControl.mainSeconds / 60));
+  const [setupByoSeconds, setSetupByoSeconds] = useState<number>(initialTimeControl.byoSeconds);
   const [startingTurn, setStartingTurn] = useState<Color>("black");
   const [timeControl, setTimeControl] = useState<TimeControl>(initialTimeControl);
 
@@ -430,9 +430,13 @@ export function App() {
   };
 
   const startMatchFromSetup = () => {
+    const nextTimeControl: TimeControl = {
+      mainSeconds: Math.max(0, Math.floor(setupMainMinutes)) * 60,
+      byoSeconds: Math.max(0, Math.floor(setupByoSeconds / 10) * 10),
+    };
     setStartingTurn(setupStartingTurn);
-    setTimeControl(setupTimeControl);
-    startNewGame(setupStartingTurn, setupTimeControl);
+    setTimeControl(nextTimeControl);
+    startNewGame(setupStartingTurn, nextTimeControl);
     setScreenMode("game");
   };
 
@@ -490,21 +494,41 @@ export function App() {
           </div>
           <div className="setup-row">
             <span className="setup-label">持ち時間</span>
-            <div className="setup-options">
-              {TIME_PRESETS.map((preset) => {
-                const label = timePresetLabel(preset);
-                const isSelected = preset.mainSeconds === setupTimeControl.mainSeconds && preset.byoSeconds === setupTimeControl.byoSeconds;
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    className={`setup-button ${isSelected ? "is-selected" : ""}`.trim()}
-                    onClick={() => setSetupTimeControl(preset)}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+            <div className="setup-input-grid">
+              <label className="setup-input-label" htmlFor="main-minutes-input">
+                持ち時間（分）
+              </label>
+              <input
+                id="main-minutes-input"
+                className="setup-number-input"
+                type="number"
+                min={0}
+                step={1}
+                value={setupMainMinutes}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  setSetupMainMinutes(Number.isNaN(value) ? 0 : Math.max(0, value));
+                }}
+              />
+              <label className="setup-input-label" htmlFor="byo-seconds-input">
+                秒読み（秒）
+              </label>
+              <input
+                id="byo-seconds-input"
+                className="setup-number-input"
+                type="number"
+                min={0}
+                step={10}
+                value={setupByoSeconds}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (Number.isNaN(value)) {
+                    setSetupByoSeconds(0);
+                    return;
+                  }
+                  setSetupByoSeconds(Math.max(0, Math.floor(value / 10) * 10));
+                }}
+              />
             </div>
           </div>
           <button type="button" className="start-match-button" onClick={startMatchFromSetup}>
@@ -529,9 +553,8 @@ export function App() {
       <section className="game-area">
         <div className="hand-anchor hand-anchor-white">
           <div className="clock-panel">
-            <p className="clock-title">後手時計</p>
-            <p className="clock-main">{formatSeconds(clockState.main.white)}</p>
-            <p className="clock-sub">秒読み {formatSeconds(clockState.byo.white)}</p>
+            <p className="clock-title">持ち時間</p>
+            <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
           </div>
           <Hand
             hands={state.hands}
@@ -566,9 +589,8 @@ export function App() {
 
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
-            <p className="clock-title">先手時計</p>
-            <p className="clock-main">{formatSeconds(clockState.main.black)}</p>
-            <p className="clock-sub">秒読み {formatSeconds(clockState.byo.black)}</p>
+            <p className="clock-title">持ち時間</p>
+            <p className="clock-main">{formatClockText(clockState.main.black, clockState.byo.black)}</p>
           </div>
           <Hand
             hands={state.hands}
