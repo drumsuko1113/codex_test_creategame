@@ -86,20 +86,42 @@ export function App() {
   return (
     <main className="app">
       <h1>Shogi Game</h1>
-      <Board board={state.board} selected={selected} onSquareClick={onSquareClick} />
-      <Hand
-        hands={state.hands}
-        turn={state.turn}
-        selectedDrop={selectedDrop}
-        onSelectDrop={(kind) => {
-          if (pendingPromotion) {
-            return;
-          }
-          setSelected(null);
-          setSelectedDrop((current) => (current === kind ? null : kind));
-        }}
-      />
-      <p className="caption">Turn: {state.turn}</p>
+      <section className="game-area">
+        <div className="hand-anchor hand-anchor-white">
+          <Hand
+            hands={state.hands}
+            color="white"
+            active={state.turn === "white"}
+            selectedDrop={selectedDrop}
+            onSelectDrop={(kind) => {
+              if (pendingPromotion) {
+                return;
+              }
+              setSelected(null);
+              setSelectedDrop((current) => (current === kind ? null : kind));
+            }}
+          />
+        </div>
+
+        <Board board={state.board} selected={selected} onSquareClick={onSquareClick} />
+
+        <div className="hand-anchor hand-anchor-black">
+          <Hand
+            hands={state.hands}
+            color="black"
+            active={state.turn === "black"}
+            selectedDrop={selectedDrop}
+            onSelectDrop={(kind) => {
+              if (pendingPromotion) {
+                return;
+              }
+              setSelected(null);
+              setSelectedDrop((current) => (current === kind ? null : kind));
+            }}
+          />
+        </div>
+      </section>
+      <p className="caption">手番: {state.turn === "black" ? "先手" : "後手"}</p>
       <PromotionDialog isOpen={pendingPromotion !== null} onChoose={onPromotionChoice} />
     </main>
   );
