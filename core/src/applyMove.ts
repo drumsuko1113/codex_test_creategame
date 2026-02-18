@@ -1,4 +1,5 @@
-﻿import { type Move, type GameState, type Piece } from "./types";
+﻿import { isKingInCheck } from "./check";
+import { type Move, type GameState, type Piece } from "./types";
 import { isMoveLegal } from "./moveValidator";
 import { resolvePromotion } from "./promotion";
 
@@ -19,6 +20,21 @@ function demote(piece: Piece): Piece {
 
 function flipTurn(current: GameState["turn"]): GameState["turn"] {
   return current === "black" ? "white" : "black";
+}
+
+function finalizeMove(state: GameState, nextBoard: GameState["board"], nextHands: GameState["hands"]): ApplyResult {
+  if (isKingInCheck({ board: nextBoard, hands: nextHands, turn: state.turn }, state.turn)) {
+    return { ok: false, reason: "Move leaves king in check" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      board: nextBoard,
+      hands: nextHands,
+      turn: flipTurn(state.turn),
+    },
+  };
 }
 
 export function applyMove(state: GameState, move: Move): ApplyResult {
@@ -45,14 +61,7 @@ export function applyMove(state: GameState, move: Move): ApplyResult {
       promoted: false,
     };
 
-    return {
-      ok: true,
-      value: {
-        board: nextBoard,
-        hands: nextHands,
-        turn: flipTurn(state.turn),
-      },
-    };
+    return finalizeMove(state, nextBoard, nextHands);
   }
 
   const movingPiece = nextBoard[move.from.y][move.from.x];
@@ -79,12 +88,5 @@ export function applyMove(state: GameState, move: Move): ApplyResult {
     promoted: promotion.promoted,
   };
 
-  return {
-    ok: true,
-    value: {
-      board: nextBoard,
-      hands: nextHands,
-      turn: flipTurn(state.turn),
-    },
-  };
+  return finalizeMove(state, nextBoard, nextHands);
 }
