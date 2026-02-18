@@ -105,6 +105,18 @@ export function App() {
     setShowRestartDialog(false);
   };
 
+  const resign = () => {
+    if (winner) {
+      return;
+    }
+
+    setWinner(oppositeColor(state.turn));
+    setShowRestartDialog(true);
+    setSelected(null);
+    setSelectedDrop(null);
+    setPendingPromotion(null);
+  };
+
   return (
     <main className="app">
       <h1>Shogi Game</h1>
@@ -146,6 +158,11 @@ export function App() {
       <p className="caption">
         {winner ? `終局: ${winner === "black" ? "先手" : "後手"}の勝ちです` : `手番: ${state.turn === "black" ? "先手" : "後手"}`}
       </p>
+      <div className="actions">
+        <button type="button" className="resign-button" disabled={winner !== null} onClick={resign}>
+          投了
+        </button>
+      </div>
       <PromotionDialog isOpen={pendingPromotion !== null} onChoose={onPromotionChoice} />
       <GameOverDialog
         isOpen={showRestartDialog && winner !== null}
