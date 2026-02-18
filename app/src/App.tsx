@@ -5,7 +5,10 @@ import { isCheckmate } from "../../core/src/checkmate";
 import { createInitialGameState } from "../../core/src/initialPosition";
 import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
 import { findSamePositionIndices } from "../../core/src/repetition";
-import { type BoardMove, type Color, type GameState, type Piece, type PieceKind, type Position } from "../../core/src/types";
+import { type BoardMove, type Color, type GameState, type PieceKind, type Position } from "../../core/src/types";
+import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/moveText";
+import { findPerpetualCheckLoser } from "./game/repetitionJudge";
+import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, normalizeTimeControl, type ClockState, type TimeControl } from "./game/timeControl";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
 import { Hand } from "./ui/Hand";
@@ -22,166 +25,6 @@ type MoveRecord = {
 };
 
 type ScreenMode = "setup" | "game";
-
-type TimeControl = {
-  mainSeconds: number;
-  byoSeconds: number;
-};
-
-type ClockState = {
-  main: Record<Color, number>;
-  byo: Record<Color, number>;
-};
-
-const PIECE_LABEL: Record<PieceKind, string> = {
-  king: "玉",
-  rook: "飛",
-  bishop: "角",
-  gold: "金",
-  silver: "銀",
-  knight: "桂",
-  lance: "香",
-  pawn: "歩",
-};
-
-const PROMOTED_PIECE_LABEL: Partial<Record<PieceKind, string>> = {
-  rook: "龍",
-  bishop: "馬",
-  silver: "全",
-  knight: "圭",
-  lance: "杏",
-  pawn: "と",
-};
-
-const FILE_LABEL = ["９", "８", "７", "６", "５", "４", "３", "２", "１"];
-const RANK_LABEL = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
-const DEFAULT_TIME_CONTROL: TimeControl = { mainSeconds: 600, byoSeconds: 30 };
-
-function formatSeconds(seconds: number): string {
-  const s = Math.max(0, seconds);
-  const min = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-}
-
-function formatClockText(mainSeconds: number, byoSeconds: number): string {
-  if (mainSeconds > 0) {
-    return formatSeconds(mainSeconds);
-  }
-  return `秒読み ${formatSeconds(byoSeconds)}`;
-}
-
-function oppositeColor(color: Color): Color {
-  return color === "black" ? "white" : "black";
-}
-
-function sideLabel(color: Color): string {
-  return color === "black" ? "▲" : "△";
-}
-
-function positionToKifu(position: Position): string {
-  return `${FILE_LABEL[position.x]}${RANK_LABEL[position.y]}`;
-}
-
-function positionToSource(position: Position): string {
-  const file = 9 - position.x;
-  const rank = position.y + 1;
-  return `(${file}${rank})`;
-}
-
-function pieceLabel(piece: Piece): string {
-  if (piece.promoted && PROMOTED_PIECE_LABEL[piece.kind]) {
-    return PROMOTED_PIECE_LABEL[piece.kind] as string;
-  }
-  return PIECE_LABEL[piece.kind];
-}
-
-function sameSquare(a: Position, b: Position): boolean {
-  return a.x === b.x && a.y === b.y;
-}
-
-function formatMoveText(
-  stateBefore: GameState,
-  move: BoardMove | { drop: PieceKind; to: Position },
-  previousTo: Position | null,
-): string {
-  const mover = sideLabel(stateBefore.turn);
-  const destination = previousTo && sameSquare(previousTo, move.to) ? "同" : positionToKifu(move.to);
-
-  if ("drop" in move) {
-    return `${mover}${destination}${PIECE_LABEL[move.drop]}打`;
-  }
-
-  const piece = stateBefore.board[move.from.y][move.from.x];
-  if (!piece) {
-    return `${mover}${destination}駒`;
-  }
-
-  const label = pieceLabel(piece);
-  const baseMove: BoardMove = { from: move.from, to: move.to };
-  const promotionAvailable = canChoosePromotion(piece, baseMove);
-  const forcedPromotion = shouldAutoPromote(piece, baseMove);
-
-  let promotionSuffix = "";
-  if (!piece.promoted) {
-    if (move.promote || forcedPromotion) {
-      promotionSuffix = "成";
-    } else if (promotionAvailable) {
-      promotionSuffix = "不成";
-    }
-  }
-
-  return `${mover}${destination}${label}${promotionSuffix}${positionToSource(move.from)}`;
-}
-
-function winnerLabel(color: Color): string {
-  return color === "black" ? "先手" : "後手";
-}
-
-function createClockState(control: TimeControl): ClockState {
-  return {
-    main: { black: control.mainSeconds, white: control.mainSeconds },
-    byo: { black: control.byoSeconds, white: control.byoSeconds },
-  };
-}
-
-function findPerpetualCheckLoser(
-  stateHistory: GameState[],
-  checkingHistory: Array<Color | null>,
-  startStateIndex: number,
-  endStateIndex: number,
-): Color | null {
-  const isContinuousBy = (color: Color): boolean => {
-    let sawOwnMove = false;
-
-    for (let moveIndex = startStateIndex; moveIndex < endStateIndex; moveIndex += 1) {
-      const mover = stateHistory[moveIndex].turn;
-      if (mover !== color) {
-        continue;
-      }
-
-      sawOwnMove = true;
-      if (checkingHistory[moveIndex] !== color) {
-        return false;
-      }
-    }
-
-    return sawOwnMove;
-  };
-
-  const blackContinuous = isContinuousBy("black");
-  const whiteContinuous = isContinuousBy("white");
-
-  if (blackContinuous && !whiteContinuous) {
-    return "black";
-  }
-
-  if (whiteContinuous && !blackContinuous) {
-    return "white";
-  }
-
-  return null;
-}
 
 export function App() {
   const initialTimeControl = DEFAULT_TIME_CONTROL;
@@ -441,10 +284,7 @@ export function App() {
   };
 
   const startMatchFromSetup = () => {
-    const nextTimeControl: TimeControl = {
-      mainSeconds: Math.max(0, Math.floor(setupMainMinutes)) * 60,
-      byoSeconds: Math.max(0, Math.floor(setupByoSeconds / 10) * 10),
-    };
+    const nextTimeControl = normalizeTimeControl(setupMainMinutes, setupByoSeconds);
     setStartingTurn(setupStartingTurn);
     setTimeControl(nextTimeControl);
     startNewGame(setupStartingTurn, nextTimeControl);
