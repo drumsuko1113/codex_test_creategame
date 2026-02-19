@@ -11,11 +11,6 @@ type HandProps = {
 
 const HAND_ORDER: PieceKind[] = ["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"];
 
-const PLAYER_LABEL: Record<Color, string> = {
-  black: "先手",
-  white: "後手",
-};
-
 export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandProps) {
   const slots: Array<{ id: string; kind: PieceKind; stackCount: number | null }> = [];
 
@@ -31,10 +26,8 @@ export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandP
   });
 
   return (
-    <aside className="hand-panel" aria-label={`${PLAYER_LABEL[color]}の持ち駒`}>
-      <span className="hand-title">{PLAYER_LABEL[color]}の持ち駒</span>
+    <aside className="hand-panel" aria-label="持ち駒">
       <div className="hand-pieces">
-        {slots.length === 0 ? <span className="hand-empty">なし</span> : null}
         {slots.map((slot) => {
           const selected = active && selectedDrop === slot.kind;
           return (
