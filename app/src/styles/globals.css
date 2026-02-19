@@ -205,57 +205,25 @@ body {
 
 .hand-anchor {
   position: absolute;
-  width: 210px;
+  width: 180px;
 }
 
 .hand-anchor-white {
-  left: -220px;
+  left: -188px;
   top: 0;
 }
 
 .hand-anchor-black {
-  right: -220px;
+  right: -188px;
   bottom: 0;
 }
 
 .hand-panel {
-  position: relative;
-  border: 1px solid #8d6b3f;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0)),
-    linear-gradient(95deg, #d9b679, #cfab6d 45%, #c79f61);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),
-    0 4px 10px rgba(49, 29, 13, 0.22);
-  padding: 8px;
-}
-
-.hand-panel::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: -8px;
-  height: 8px;
-  background: linear-gradient(180deg, #b68b53, #9c7545);
-  border: 1px solid #8a673d;
-  border-top: none;
-}
-
-.hand-stand-top {
-  border: 1px solid #8d6b3f;
-  background: linear-gradient(96deg, #e6c98d, #d7b778 58%, #cba867);
-  padding: 6px 8px;
-  margin-bottom: 8px;
-}
-
-.hand-stand-surface {
-  border: 1px solid #8d6b3f;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0)),
-    linear-gradient(98deg, #e3c88f, #d6b678 60%, #cbac6d);
-  padding: 8px;
-  min-height: 212px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #6e5838;
+  background: #f1e4c8;
 }
 
 .clock-panel {
@@ -282,66 +250,43 @@ body {
 .hand-title {
   font-weight: 700;
   font-size: 14px;
-  letter-spacing: 0.02em;
 }
 
 .hand-pieces {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 6px;
 }
 
 .hand-piece {
   border: 1px solid #664c2d;
-  background: rgba(255, 246, 224, 0.86);
-  padding: 5px 6px;
+  background: #fff7e3;
+  padding: 4px 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  transition: transform 120ms ease, box-shadow 120ms ease;
-}
-
-.hand-piece:hover:enabled {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 5px rgba(59, 33, 13, 0.22);
-}
-
-.hand-piece:disabled {
-  opacity: 0.45;
-  cursor: default;
 }
 
 .hand-piece.is-selected {
-  outline: 2px solid #2f6dc1;
-  background: #fff4d7;
+  outline: 2px solid #2878ff;
 }
 
 .hand-piece-icon {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  background-repeat: no-repeat;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
 }
 
 .hand-piece-count {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1;
-  min-width: 26px;
+  min-width: 24px;
   text-align: right;
   font-weight: 700;
-  color: #3e2d18;
-}
-
-.hand-panel-white .hand-title {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  height: 58px;
-}
-
-.hand-panel-black .hand-title {
-  writing-mode: horizontal-tb;
 }
 
 .promotion-dialog-backdrop {
@@ -453,14 +398,5 @@ body {
 
   .hand-pieces {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hand-panel::after {
-    display: none;
-  }
-
-  .hand-panel-white .hand-title {
-    writing-mode: horizontal-tb;
-    height: auto;
   }
 }
