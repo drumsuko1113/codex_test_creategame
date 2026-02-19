@@ -205,27 +205,27 @@ body {
 
 .hand-anchor {
   position: absolute;
-  width: 340px;
+  width: 240px;
   display: grid;
-  gap: 10px;
+  gap: 4px;
 }
 
 .hand-anchor-white {
-  left: -350px;
+  left: -250px;
   top: 0;
 }
 
 .hand-anchor-black {
-  right: -350px;
+  right: -250px;
   bottom: 0;
 }
 
 .hand-panel {
   display: grid;
   gap: 8px;
-  width: 340px;
-  height: 340px;
-  padding: 10px;
+  width: 240px;
+  height: 240px;
+  padding: 8px;
   border: 1px solid #6e5838;
   background: #f1e4c8;
 }
@@ -233,7 +233,7 @@ body {
 .clock-panel {
   border: 1px solid #6e5838;
   background: #f7e9c9;
-  padding: 6px 8px;
+  padding: 5px 8px;
 }
 
 .clock-title {
@@ -258,7 +258,8 @@ body {
 .hand-pieces {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  column-gap: 2px;
+  row-gap: 6px;
   align-content: start;
 }
 
@@ -401,7 +402,7 @@ body {
 
   .hand-anchor {
     position: static;
-    width: 340px;
+    width: 240px;
     margin: 0 auto;
   }
 
