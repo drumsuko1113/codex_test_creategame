@@ -205,26 +205,26 @@ body {
 
 .hand-anchor {
   position: absolute;
-  width: 252px;
+  width: 340px;
   display: grid;
   gap: 10px;
 }
 
 .hand-anchor-white {
-  left: -262px;
+  left: -350px;
   top: 0;
 }
 
 .hand-anchor-black {
-  right: -262px;
+  right: -350px;
   bottom: 0;
 }
 
 .hand-panel {
   display: grid;
   gap: 8px;
-  width: 252px;
-  height: 252px;
+  width: 340px;
+  height: 340px;
   padding: 10px;
   border: 1px solid #6e5838;
   background: #f1e4c8;
@@ -258,7 +258,7 @@ body {
 .hand-pieces {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 8px;
+  gap: 6px;
   align-content: start;
 }
 
@@ -401,7 +401,7 @@ body {
 
   .hand-anchor {
     position: static;
-    width: 252px;
+    width: 340px;
     margin: 0 auto;
   }
 
