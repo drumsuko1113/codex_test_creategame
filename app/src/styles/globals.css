@@ -253,40 +253,40 @@ body {
 }
 
 .hand-pieces {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
   gap: 6px;
+  min-height: 84px;
 }
 
 .hand-piece {
-  border: 1px solid #664c2d;
-  background: #fff7e3;
-  padding: 4px 6px;
+  width: 34px;
+  height: 40px;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-}
-
-.hand-piece.is-selected {
-  outline: 2px solid #2878ff;
-}
-
-.hand-piece-icon {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
   display: grid;
   place-items: center;
 }
 
-.hand-piece-count {
+.hand-piece.is-selected {
+  border-color: #2878ff;
+  background: rgba(40, 120, 255, 0.08);
+}
+
+.hand-piece-icon {
+  width: 32px;
+  height: 38px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+}
+
+.hand-empty {
   font-size: 13px;
-  line-height: 1;
-  min-width: 24px;
-  text-align: right;
-  font-weight: 700;
+  color: #6e5838;
 }
 
 .promotion-dialog-backdrop {
@@ -397,6 +397,6 @@ body {
   }
 
   .hand-pieces {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-height: auto;
   }
 }

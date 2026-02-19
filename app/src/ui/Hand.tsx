@@ -17,27 +17,33 @@ const PLAYER_LABEL: Record<Color, string> = {
 };
 
 export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandProps) {
+  const slots: Array<{ id: string; kind: PieceKind }> = [];
+
+  HAND_ORDER.forEach((kind) => {
+    const count = hands[color][kind] ?? 0;
+    for (let i = 0; i < count; i += 1) {
+      slots.push({ id: `${kind}-${i}`, kind });
+    }
+  });
+
   return (
     <aside className="hand-panel" aria-label={`${PLAYER_LABEL[color]}の持ち駒`}>
       <span className="hand-title">{PLAYER_LABEL[color]}の持ち駒</span>
       <div className="hand-pieces">
-        {HAND_ORDER.map((kind) => {
-          const count = hands[color][kind] ?? 0;
-          const disabled = !active || count <= 0;
-          const selected = active && selectedDrop === kind;
-
+        {slots.length === 0 ? <span className="hand-empty">なし</span> : null}
+        {slots.map((slot) => {
+          const selected = active && selectedDrop === slot.kind;
           return (
             <button
-              key={`${color}-${kind}`}
+              key={`${color}-${slot.id}`}
               type="button"
-              disabled={disabled}
+              disabled={!active}
               className={`hand-piece ${selected ? "is-selected" : ""}`.trim()}
-              onClick={() => onSelectDrop(kind)}
+              onClick={() => onSelectDrop(slot.kind)}
             >
               <span className="hand-piece-icon" aria-hidden="true">
-                <Piece piece={{ kind, color, promoted: false }} />
+                <Piece piece={{ kind: slot.kind, color, promoted: false }} />
               </span>
-              <span className="hand-piece-count">x{count}</span>
             </button>
           );
         })}
