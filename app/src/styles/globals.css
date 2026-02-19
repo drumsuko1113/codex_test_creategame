@@ -205,32 +205,35 @@ body {
 
 .hand-anchor {
   position: absolute;
-  width: 180px;
+  width: 240px;
+  display: grid;
+  gap: 4px;
 }
 
 .hand-anchor-white {
-  left: -188px;
+  left: -250px;
   top: 0;
 }
 
 .hand-anchor-black {
-  right: -188px;
+  right: -250px;
   bottom: 0;
 }
 
 .hand-panel {
   display: grid;
-  gap: 6px;
-  padding: 10px;
+  gap: 8px;
+  width: 240px;
+  height: 240px;
+  padding: 8px;
   border: 1px solid #6e5838;
   background: #f1e4c8;
 }
 
 .clock-panel {
-  margin-bottom: 8px;
   border: 1px solid #6e5838;
   background: #f7e9c9;
-  padding: 6px 8px;
+  padding: 5px 8px;
 }
 
 .clock-title {
@@ -254,38 +257,57 @@ body {
 
 .hand-pieces {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
+  grid-template-columns: repeat(4, 1fr);
+  column-gap: 2px;
+  row-gap: 6px;
+  align-content: start;
 }
 
 .hand-piece {
-  border: 1px solid #664c2d;
-  background: #fff7e3;
-  padding: 4px 6px;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border: none;
+  background: transparent;
+  padding: 2px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+  display: grid;
+  place-items: center;
 }
 
 .hand-piece.is-selected {
-  outline: 2px solid #2878ff;
+  background: rgba(40, 120, 255, 0.1);
+  box-shadow: inset 0 0 0 2px rgba(40, 120, 255, 0.45);
 }
 
 .hand-piece-icon {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  background-repeat: no-repeat;
+  width: 100%;
+  height: 100%;
+  flex: 0 0 100%;
+  display: grid;
+  place-items: center;
 }
 
-.hand-piece-count {
-  font-size: 13px;
+.hand-piece-icon .piece {
+  width: 92%;
+}
+
+.hand-piece-stack {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  font-size: 11px;
   line-height: 1;
-  min-width: 24px;
-  text-align: right;
   font-weight: 700;
+  color: #3f2d17;
+  background: rgba(255, 244, 214, 0.9);
+  padding: 1px 2px;
+}
+
+.hand-empty {
+  font-size: 13px;
+  color: #6e5838;
+  grid-column: 1 / -1;
 }
 
 .promotion-dialog-backdrop {
@@ -380,7 +402,8 @@ body {
 
   .hand-anchor {
     position: static;
-    width: auto;
+    width: 240px;
+    margin: 0 auto;
   }
 
   .hand-anchor-white {
@@ -396,6 +419,6 @@ body {
   }
 
   .hand-pieces {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, 1fr);
   }
 }

@@ -413,10 +413,6 @@ export function App() {
       </section>
       <section className="game-area">
         <div className="hand-anchor hand-anchor-white">
-          <div className="clock-panel">
-            <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
-          </div>
           <Hand
             hands={state.hands}
             color="white"
@@ -424,6 +420,10 @@ export function App() {
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
+          <div className="clock-panel">
+            <p className="clock-title">持ち時間</p>
+            <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
+          </div>
           <section className="history-panel" aria-label="move history">
             <h2>棋譜</h2>
             <ol className="history-list">
