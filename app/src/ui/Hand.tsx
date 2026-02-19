@@ -17,12 +17,16 @@ const PLAYER_LABEL: Record<Color, string> = {
 };
 
 export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandProps) {
-  const slots: Array<{ id: string; kind: PieceKind }> = [];
+  const slots: Array<{ id: string; kind: PieceKind; stackCount: number | null }> = [];
 
   HAND_ORDER.forEach((kind) => {
     const count = hands[color][kind] ?? 0;
+    if (count >= 4) {
+      slots.push({ id: `${kind}-stack`, kind, stackCount: count });
+      return;
+    }
     for (let i = 0; i < count; i += 1) {
-      slots.push({ id: `${kind}-${i}`, kind });
+      slots.push({ id: `${kind}-${i}`, kind, stackCount: null });
     }
   });
 
@@ -44,6 +48,7 @@ export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandP
               <span className="hand-piece-icon" aria-hidden="true">
                 <Piece piece={{ kind: slot.kind, color, promoted: false }} />
               </span>
+              {slot.stackCount ? <span className="hand-piece-stack">x{slot.stackCount}</span> : null}
             </button>
           );
         })}
