@@ -49,27 +49,31 @@ function handPieceSpriteStyle(color: Color, kind: PieceKind): CSSProperties {
 
 export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandProps) {
   return (
-    <aside className="hand-panel" aria-label={`${PLAYER_LABEL[color]}の持ち駒`}>
-      <span className="hand-title">{PLAYER_LABEL[color]}の持ち駒</span>
-      <div className="hand-pieces">
-        {HAND_ORDER.map((kind) => {
-          const count = hands[color][kind] ?? 0;
-          const disabled = !active || count <= 0;
-          const selected = active && selectedDrop === kind;
+    <aside className={`hand-panel hand-panel-${color}`} aria-label={`${PLAYER_LABEL[color]}の持ち駒`}>
+      <div className="hand-stand-top">
+        <span className="hand-title">{PLAYER_LABEL[color]}の持ち駒</span>
+      </div>
+      <div className="hand-stand-surface">
+        <div className="hand-pieces">
+          {HAND_ORDER.map((kind) => {
+            const count = hands[color][kind] ?? 0;
+            const disabled = !active || count <= 0;
+            const selected = active && selectedDrop === kind;
 
-          return (
-            <button
-              key={`${color}-${kind}`}
-              type="button"
-              disabled={disabled}
-              className={`hand-piece ${selected ? "is-selected" : ""}`.trim()}
-              onClick={() => onSelectDrop(kind)}
-            >
-              <span className="hand-piece-icon" style={handPieceSpriteStyle(color, kind)} aria-hidden="true" />
-              <span className="hand-piece-count">x{count}</span>
-            </button>
-          );
-        })}
+            return (
+              <button
+                key={`${color}-${kind}`}
+                type="button"
+                disabled={disabled}
+                className={`hand-piece ${selected ? "is-selected" : ""}`.trim()}
+                onClick={() => onSelectDrop(kind)}
+              >
+                <span className="hand-piece-icon" style={handPieceSpriteStyle(color, kind)} aria-hidden="true" />
+                <span className="hand-piece-count">x{count}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </aside>
   );
