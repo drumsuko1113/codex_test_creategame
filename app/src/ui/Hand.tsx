@@ -9,7 +9,7 @@ type HandProps = {
   onSelectDrop: (kind: PieceKind) => void;
 };
 
-const HAND_ORDER: PieceKind[] = ["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"];
+const HAND_ORDER: PieceKind[] = ["pawn", "lance", "knight", "silver", "gold", "bishop", "rook"];
 
 export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandProps) {
   const slots: Array<{ id: string; kind: PieceKind; stackCount: number | null }> = [];
