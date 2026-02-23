@@ -5,11 +5,13 @@ import { readJsonBody, writeJson } from "./http";
 import { log } from "./logger";
 import { requireSessionAuth } from "./middleware";
 import { RateLimiter } from "./rateLimiter";
+import { RealtimeHub } from "./realtime";
 import { InMemoryStore } from "./store";
 import type { CreateGameInput, JoinGameInput } from "./types";
 
 const store = new InMemoryStore();
 const rateLimiter = new RateLimiter(60_000, 120);
+const realtime = new RealtimeHub();
 
 type MoveRequestBody = {
   move: Move;
@@ -118,6 +120,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
     const created = store.createGame(body);
     respond(res, ctx, 201, created, { gameId: created.gameId, event: "game.created" });
+    realtime.broadcast(created.gameId, "game.created", created);
     return;
   }
 
@@ -133,6 +136,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     try {
       const joined = store.joinGame(gameId, body);
       respond(res, ctx, 200, joined, { gameId, guestId: joined.guestId, event: "game.joined" });
+      realtime.broadcast(gameId, "player.joined", joined);
       return;
     } catch (error) {
       const code = error instanceof Error ? error.message : "UNKNOWN";
@@ -214,6 +218,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     try {
       const updated = store.submitMove(gameId, actor, body.move, body.expectedVersion);
       respond(res, ctx, 200, updated, { gameId, guestId: actor.guestId, event: "game.moved" });
+      realtime.broadcast(gameId, "game.updated", updated);
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : "UNKNOWN";
@@ -252,6 +257,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     try {
       const updated = store.resign(gameId, actor);
       respond(res, ctx, 200, updated, { gameId, guestId: actor.guestId, event: "game.resigned" });
+      realtime.broadcast(gameId, "game.finished", updated);
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : "UNKNOWN";
@@ -271,7 +277,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 }
 
 export function createApp() {
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     handleRequest(req, res).catch((error: unknown) => {
       const ctx = makeRequestContext(req);
       const message = error instanceof Error ? error.message : "Internal Server Error";
@@ -286,4 +292,6 @@ export function createApp() {
       respondError(res, ctx, 500, "INTERNAL_ERROR", message);
     });
   });
+  realtime.attach(server);
+  return server;
 }
