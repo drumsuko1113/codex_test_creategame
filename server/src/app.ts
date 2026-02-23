@@ -1,98 +1,35 @@
-﻿import { randomUUID } from "node:crypto";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { Move } from "../../core/src/types";
-import { readJsonBody, writeJson } from "./http";
+﻿import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readJsonBody } from "./http";
+import { makeRequestContext } from "./context";
 import { log } from "./logger";
 import { requireSessionAuth } from "./middleware";
 import { RateLimiter } from "./rateLimiter";
 import { RealtimeHub } from "./realtime";
+import { respond, respondError } from "./respond";
 import { InMemoryStore } from "./store";
-import type { CreateGameInput, JoinGameInput } from "./types";
+import type { CreateGameInput, JoinGameInput, Player } from "./types";
+import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput } from "./validators";
 
 const store = new InMemoryStore();
 const rateLimiter = new RateLimiter(60_000, 120);
 const realtime = new RealtimeHub();
 
-type MoveRequestBody = {
-  move: Move;
-  expectedVersion: number;
-};
-
-type RequestContext = {
-  requestId: string;
-  method: string;
-  path: string;
-};
-
-function makeRequestContext(req: IncomingMessage): RequestContext {
-  const headerValue = req.headers["x-request-id"];
-  const requestId = typeof headerValue === "string" && headerValue ? headerValue : randomUUID();
-  return {
-    requestId,
-    method: req.method ?? "UNKNOWN",
-    path: req.url ?? "",
-  };
-}
-
-function respond(
+function authenticateActor(
+  req: IncomingMessage,
   res: ServerResponse,
-  ctx: RequestContext,
-  statusCode: number,
-  body: unknown,
-  meta?: { gameId?: string; guestId?: string; event?: string },
-): void {
-  res.setHeader("x-request-id", ctx.requestId);
-  writeJson(res, statusCode, body);
-  log({
-    level: "info",
-    event: meta?.event ?? "http.response",
-    requestId: ctx.requestId,
-    method: ctx.method,
-    path: ctx.path,
-    statusCode,
-    gameId: meta?.gameId,
-    guestId: meta?.guestId,
-  });
-}
-
-function respondError(
-  res: ServerResponse,
-  ctx: RequestContext,
-  statusCode: number,
-  code: string,
-  message: string,
-  meta?: { gameId?: string; guestId?: string; event?: string },
-): void {
-  respond(res, ctx, statusCode, { error: { code, message } }, meta);
-}
-
-function isValidCreateGameInput(input: CreateGameInput): boolean {
-  if (!Number.isInteger(input.mainMinutes) || input.mainMinutes <= 0) {
-    return false;
+  gameId: string,
+  ctx: ReturnType<typeof makeRequestContext>,
+): Player | null {
+  try {
+    return requireSessionAuth(req, store, gameId);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "UNAUTHORIZED";
+    if (code === "UNAUTHORIZED") {
+      respondError(res, ctx, 401, code, "Session token is missing or invalid", { gameId });
+      return null;
+    }
+    throw error;
   }
-  if (!Number.isInteger(input.byoSeconds) || input.byoSeconds < 0) {
-    return false;
-  }
-  return input.byoSeconds === 0 || input.byoSeconds % 10 === 0;
-}
-
-function isValidJoinGameInput(input: JoinGameInput): boolean {
-  const trimmed = input.name?.trim();
-  if (!trimmed || trimmed.length < 2 || trimmed.length > 20) {
-    return false;
-  }
-  if (input.seat !== "black" && input.seat !== "white") {
-    return false;
-  }
-  return typeof input.joinToken === "string" && input.joinToken.length >= 16;
-}
-
-function isMoveRequestBody(input: unknown): input is MoveRequestBody {
-  if (!input || typeof input !== "object") {
-    return false;
-  }
-  const body = input as Record<string, unknown>;
-  return typeof body.expectedVersion === "number" && Number.isInteger(body.expectedVersion) && "move" in body;
 }
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -196,17 +133,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const moveMatch = req.url?.match(/^\/api\/games\/([^/]+)\/moves$/);
   if (req.method === "POST" && moveMatch) {
     const gameId = moveMatch[1];
-
-    let actor;
-    try {
-      actor = requireSessionAuth(req, store, gameId);
-    } catch (error) {
-      const code = error instanceof Error ? error.message : "UNAUTHORIZED";
-      if (code === "UNAUTHORIZED") {
-        respondError(res, ctx, 401, code, "Session token is missing or invalid", { gameId });
-        return;
-      }
-      throw error;
+    const actor = authenticateActor(req, res, gameId, ctx);
+    if (!actor) {
+      return;
     }
 
     const body = await readJsonBody<unknown>(req);
@@ -241,17 +170,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const resignMatch = req.url?.match(/^\/api\/games\/([^/]+)\/resign$/);
   if (req.method === "POST" && resignMatch) {
     const gameId = resignMatch[1];
-
-    let actor;
-    try {
-      actor = requireSessionAuth(req, store, gameId);
-    } catch (error) {
-      const code = error instanceof Error ? error.message : "UNAUTHORIZED";
-      if (code === "UNAUTHORIZED") {
-        respondError(res, ctx, 401, code, "Session token is missing or invalid", { gameId });
-        return;
-      }
-      throw error;
+    const actor = authenticateActor(req, res, gameId, ctx);
+    if (!actor) {
+      return;
     }
 
     try {
