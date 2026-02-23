@@ -142,6 +142,38 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
   }
 
+  const resignMatch = req.url?.match(/^\/api\/games\/([^/]+)\/resign$/);
+  if (req.method === "POST" && resignMatch) {
+    let actor;
+    try {
+      actor = requireSessionAuth(req, store, resignMatch[1]);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "UNAUTHORIZED";
+      if (code === "UNAUTHORIZED") {
+        writeJson(res, 401, { error: code });
+        return;
+      }
+      throw error;
+    }
+
+    try {
+      const updated = store.resign(resignMatch[1], actor);
+      writeJson(res, 200, updated);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "UNKNOWN";
+      if (message === "GAME_NOT_FOUND") {
+        writeJson(res, 404, { error: message });
+        return;
+      }
+      if (message === "GAME_ALREADY_FINISHED") {
+        writeJson(res, 409, { error: message });
+        return;
+      }
+      throw error;
+    }
+  }
+
   writeJson(res, 404, { error: "Not Found" });
 }
 

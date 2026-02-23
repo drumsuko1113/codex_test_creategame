@@ -147,4 +147,21 @@ export class InMemoryStore {
 
     return game;
   }
+
+  resign(gameId: string, actor: Player): Game {
+    const game = this.games.get(gameId);
+    if (!game) {
+      throw new Error("GAME_NOT_FOUND");
+    }
+    if (game.status === "finished") {
+      throw new Error("GAME_ALREADY_FINISHED");
+    }
+
+    game.status = "finished";
+    game.resultType = "resign";
+    game.winner = actor.seat === "black" ? "white" : "black";
+    game.updatedAt = toIsoNow();
+    game.version += 1;
+    return game;
+  }
 }
