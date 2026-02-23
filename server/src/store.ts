@@ -93,4 +93,12 @@ export class InMemoryStore {
       seat: input.seat,
     };
   }
+
+  findPlayerBySessionToken(gameId: string, tokenHash: string): Player | null {
+    const players = this.playersByGame.get(gameId);
+    if (!players) {
+      return null;
+    }
+    return players.find((player) => player.sessionTokenHash === tokenHash) ?? null;
+  }
 }

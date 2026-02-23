@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readJsonBody, writeJson } from "./http";
+import { requireSessionAuth } from "./middleware";
 import { InMemoryStore } from "./store";
 import type { CreateGameInput, JoinGameInput } from "./types";
 
@@ -57,6 +58,20 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       }
       if (code === "GAME_IS_FULL" || code === "SEAT_ALREADY_TAKEN") {
         writeJson(res, 409, { error: code });
+        return;
+      }
+      throw error;
+    }
+  }
+
+  const authRequiredMatch = req.url?.match(/^\/api\/games\/([^/]+)\/(moves|resign)$/);
+  if (authRequiredMatch) {
+    try {
+      requireSessionAuth(req, store, authRequiredMatch[1]);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "UNAUTHORIZED";
+      if (code === "UNAUTHORIZED") {
+        writeJson(res, 401, { error: code });
         return;
       }
       throw error;
