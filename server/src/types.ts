@@ -1,4 +1,5 @@
 import type { GameState } from "../../core/src/types";
+import type { Move } from "../../core/src/types";
 
 export type Seat = "black" | "white";
 export type GameStatus = "waiting" | "active" | "finished";
@@ -39,4 +40,12 @@ export type JoinGameInput = {
   name: string;
   seat: Seat;
   joinToken: string;
+};
+
+export type MoveRecord = {
+  ply: number;
+  actorSeat: Seat;
+  move: Move;
+  stateAfter: GameState;
+  createdAt: string;
 };

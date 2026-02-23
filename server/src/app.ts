@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { Move } from "../../core/src/types";
 import { readJsonBody, writeJson } from "./http";
 import { requireSessionAuth } from "./middleware";
 import { InMemoryStore } from "./store";
@@ -64,20 +65,6 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
   }
 
-  const authRequiredMatch = req.url?.match(/^\/api\/games\/([^/]+)\/(moves|resign)$/);
-  if (authRequiredMatch) {
-    try {
-      requireSessionAuth(req, store, authRequiredMatch[1]);
-    } catch (error) {
-      const code = error instanceof Error ? error.message : "UNAUTHORIZED";
-      if (code === "UNAUTHORIZED") {
-        writeJson(res, 401, { error: code });
-        return;
-      }
-      throw error;
-    }
-  }
-
   const getGameMatch = req.url?.match(/^\/api\/games\/([^/]+)$/);
   if (req.method === "GET" && getGameMatch) {
     const game = store.getGame(getGameMatch[1]);
@@ -87,6 +74,43 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
     writeJson(res, 200, game);
     return;
+  }
+
+  const moveMatch = req.url?.match(/^\/api\/games\/([^/]+)\/moves$/);
+  if (req.method === "POST" && moveMatch) {
+    let actor;
+    try {
+      actor = requireSessionAuth(req, store, moveMatch[1]);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "UNAUTHORIZED";
+      if (code === "UNAUTHORIZED") {
+        writeJson(res, 401, { error: code });
+        return;
+      }
+      throw error;
+    }
+
+    const move = await readJsonBody<Move>(req);
+    try {
+      const updated = store.submitMove(moveMatch[1], actor, move);
+      writeJson(res, 200, updated);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "UNKNOWN";
+      if (message === "GAME_NOT_FOUND") {
+        writeJson(res, 404, { error: message });
+        return;
+      }
+      if (message === "GAME_NOT_ACTIVE" || message === "NOT_YOUR_TURN") {
+        writeJson(res, 409, { error: message });
+        return;
+      }
+      if (message.startsWith("ILLEGAL_MOVE:")) {
+        writeJson(res, 400, { error: message });
+        return;
+      }
+      throw error;
+    }
   }
 
   writeJson(res, 404, { error: "Not Found" });
