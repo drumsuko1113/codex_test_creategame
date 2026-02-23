@@ -4,10 +4,12 @@ import type { Move } from "../../core/src/types";
 import { readJsonBody, writeJson } from "./http";
 import { log } from "./logger";
 import { requireSessionAuth } from "./middleware";
+import { RateLimiter } from "./rateLimiter";
 import { InMemoryStore } from "./store";
 import type { CreateGameInput, JoinGameInput } from "./types";
 
 const store = new InMemoryStore();
+const rateLimiter = new RateLimiter(60_000, 120);
 
 type MoveRequestBody = {
   move: Move;
@@ -82,6 +84,14 @@ function isMoveRequestBody(input: unknown): input is MoveRequestBody {
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const ctx = makeRequestContext(req);
+
+  if (ctx.path.startsWith("/api/")) {
+    const ip = req.socket.remoteAddress ?? "unknown";
+    if (!rateLimiter.consume(ip)) {
+      respond(res, ctx, 429, { error: "RATE_LIMIT_EXCEEDED" });
+      return;
+    }
+  }
 
   if (req.method === "GET" && req.url === "/health") {
     respond(res, ctx, 200, { ok: true }, { event: "health" });
