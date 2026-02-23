@@ -1,11 +1,12 @@
-﻿import { type BoardState, type GameState, type Piece } from "./types";
+﻿import { BOARD_SIZE } from "./constants";
+import { type BoardState, type GameState, type Piece } from "./types";
 
 function piece(kind: Piece["kind"], color: Piece["color"]): Piece {
   return { kind, color, promoted: false };
 }
 
 function emptyBoard(): BoardState {
-  return Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => null));
+  return Array.from({ length: BOARD_SIZE }, () => Array.from({ length: BOARD_SIZE }, () => null));
 }
 
 export function createInitialGameState(): GameState {
@@ -26,7 +27,7 @@ export function createInitialGameState(): GameState {
   board[1][1] = piece("rook", "white");
   board[1][7] = piece("bishop", "white");
 
-  for (let x = 0; x < 9; x += 1) {
+  for (let x = 0; x < BOARD_SIZE; x += 1) {
     board[2][x] = piece("pawn", "white");
     board[6][x] = piece("pawn", "black");
   }

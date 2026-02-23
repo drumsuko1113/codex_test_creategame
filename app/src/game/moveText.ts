@@ -1,5 +1,6 @@
 import { canChoosePromotion, shouldAutoPromote } from "../../../core/src/promotion";
 import { type BoardMove, type Color, type GameState, type Piece, type PieceKind, type Position } from "../../../core/src/types";
+import { isSamePosition } from "./position";
 
 const PIECE_LABEL: Record<PieceKind, string> = {
   king: "玉",
@@ -46,10 +47,6 @@ function positionToSource(position: Position): string {
   return `(${file}${rank})`;
 }
 
-function sameSquare(a: Position, b: Position): boolean {
-  return a.x === b.x && a.y === b.y;
-}
-
 function pieceLabel(piece: Piece): string {
   if (piece.promoted && PROMOTED_PIECE_LABEL[piece.kind]) {
     return PROMOTED_PIECE_LABEL[piece.kind] as string;
@@ -63,7 +60,7 @@ export function formatMoveText(
   previousTo: Position | null,
 ): string {
   const mover = sideLabel(stateBefore.turn);
-  const destination = previousTo && sameSquare(previousTo, move.to) ? "同" : positionToKifu(move.to);
+  const destination = previousTo && isSamePosition(previousTo, move.to) ? "同" : positionToKifu(move.to);
 
   if ("drop" in move) {
     return `${mover}${destination}${PIECE_LABEL[move.drop]}打`;

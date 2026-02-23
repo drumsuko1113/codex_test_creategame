@@ -1,16 +1,23 @@
-﻿import { isMoveLegal } from "./moveValidator";
+﻿import { forEachBoardPosition } from "./board";
+import { isMoveLegal } from "./moveValidator";
 import { type Color, type GameState, type Position } from "./types";
 
 export function findKingPosition(state: GameState, color: Color): Position | null {
-  for (let y = 0; y < state.board.length; y += 1) {
-    for (let x = 0; x < state.board[y].length; x += 1) {
-      const piece = state.board[y][x];
-      if (piece?.kind === "king" && piece.color === color) {
-        return { x, y };
-      }
+  let king: Position | null = null;
+
+  forEachBoardPosition(({ x, y }) => {
+    if (king) {
+      return false;
     }
-  }
-  return null;
+
+    const piece = state.board[y][x];
+    if (piece?.kind === "king" && piece.color === color) {
+      king = { x, y };
+      return false;
+    }
+  });
+
+  return king;
 }
 
 export function isKingInCheck(state: GameState, kingColor: Color): boolean {
@@ -25,25 +32,30 @@ export function isKingInCheck(state: GameState, kingColor: Color): boolean {
     turn: attackerColor,
   };
 
-  for (let y = 0; y < attackerState.board.length; y += 1) {
-    for (let x = 0; x < attackerState.board[y].length; x += 1) {
-      const piece = attackerState.board[y][x];
-      if (!piece || piece.color !== attackerColor) {
-        continue;
-      }
+  let inCheck = false;
 
-      if (
-        isMoveLegal(attackerState, {
-          from: { x, y },
-          to: kingPosition,
-        })
-      ) {
-        return true;
-      }
+  forEachBoardPosition(({ x, y }) => {
+    if (inCheck) {
+      return false;
     }
-  }
 
-  return false;
+    const piece = attackerState.board[y][x];
+    if (!piece || piece.color !== attackerColor) {
+      return;
+    }
+
+    if (
+      isMoveLegal(attackerState, {
+        from: { x, y },
+        to: kingPosition,
+      })
+    ) {
+      inCheck = true;
+      return false;
+    }
+  });
+
+  return inCheck;
 }
 
 export function isInCheck(state: GameState): boolean {

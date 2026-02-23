@@ -6,6 +6,7 @@ import { requireSessionAuth } from "./middleware";
 import { RateLimiter } from "./rateLimiter";
 import { RealtimeHub } from "./realtime";
 import { respond, respondError } from "./respond";
+import { ROUTE_JOIN, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
 import { InMemoryStore } from "./store";
 import type { CreateGameInput, JoinGameInput, Player } from "./types";
 import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput } from "./validators";
@@ -61,7 +62,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  const joinMatch = req.url?.match(/^\/api\/games\/([^/]+)\/join$/);
+  const joinMatch = req.url?.match(ROUTE_JOIN);
   if (req.method === "POST" && joinMatch) {
     const gameId = joinMatch[1];
     const body = await readJsonBody<JoinGameInput>(req);
@@ -93,7 +94,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
   }
 
-  const recordsMatch = req.url?.match(/^\/api\/games\/([^/]+)\/records$/);
+  const recordsMatch = req.url?.match(ROUTE_RECORDS);
   if (req.method === "GET" && recordsMatch) {
     const gameId = recordsMatch[1];
     const game = store.getGame(gameId);
@@ -118,7 +119,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  const getGameMatch = req.url?.match(/^\/api\/games\/([^/]+)$/);
+  const getGameMatch = req.url?.match(ROUTE_SNAPSHOT);
   if (req.method === "GET" && getGameMatch) {
     const gameId = getGameMatch[1];
     const game = store.getGame(gameId);
@@ -130,7 +131,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  const moveMatch = req.url?.match(/^\/api\/games\/([^/]+)\/moves$/);
+  const moveMatch = req.url?.match(ROUTE_MOVE);
   if (req.method === "POST" && moveMatch) {
     const gameId = moveMatch[1];
     const actor = authenticateActor(req, res, gameId, ctx);
@@ -167,7 +168,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
   }
 
-  const resignMatch = req.url?.match(/^\/api\/games\/([^/]+)\/resign$/);
+  const resignMatch = req.url?.match(ROUTE_RESIGN);
   if (req.method === "POST" && resignMatch) {
     const gameId = resignMatch[1];
     const actor = authenticateActor(req, res, gameId, ctx);

@@ -1,4 +1,5 @@
-﻿import { type Color, type GameState, type Piece, type PieceKind } from "./types";
+﻿import { BOARD_SIZE, HAND_PIECE_KINDS } from "./constants";
+import { type Color, type GameState, type Piece, type PieceKind } from "./types";
 
 const KIND_TO_SFEN: Record<PieceKind, string> = {
   king: "K",
@@ -21,8 +22,6 @@ const SFEN_TO_KIND: Record<string, PieceKind> = {
   L: "lance",
   P: "pawn",
 };
-
-const HAND_ORDER: PieceKind[] = ["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"];
 
 function serializePiece(piece: Piece): string {
   const base = KIND_TO_SFEN[piece.kind];
@@ -78,8 +77,8 @@ function serializeBoard(state: GameState): string {
 
 function parseBoard(boardSfen: string): GameState["board"] {
   const ranks = boardSfen.split("/");
-  if (ranks.length !== 9) {
-    throw new Error("Invalid SFEN board: expected 9 ranks");
+  if (ranks.length !== BOARD_SIZE) {
+    throw new Error(`Invalid SFEN board: expected ${BOARD_SIZE} ranks`);
   }
 
   return ranks.map((rank) => {
@@ -106,8 +105,8 @@ function parseBoard(boardSfen: string): GameState["board"] {
       row.push(deserializePiece(ch));
     }
 
-    if (row.length !== 9) {
-      throw new Error("Invalid SFEN board: each rank must have 9 files");
+    if (row.length !== BOARD_SIZE) {
+      throw new Error(`Invalid SFEN board: each rank must have ${BOARD_SIZE} files`);
     }
 
     return row;
@@ -117,14 +116,14 @@ function parseBoard(boardSfen: string): GameState["board"] {
 function serializeHands(state: GameState): string {
   const tokens: string[] = [];
 
-  for (const kind of HAND_ORDER) {
+  for (const kind of HAND_PIECE_KINDS) {
     const count = state.hands.black[kind] ?? 0;
     if (count > 0) {
       tokens.push(`${count > 1 ? count : ""}${KIND_TO_SFEN[kind]}`);
     }
   }
 
-  for (const kind of HAND_ORDER) {
+  for (const kind of HAND_PIECE_KINDS) {
     const count = state.hands.white[kind] ?? 0;
     if (count > 0) {
       const lower = KIND_TO_SFEN[kind].toLowerCase();
