@@ -3,6 +3,7 @@ import type { Move } from "../../core/src/types";
 import { applyMove } from "../../core/src/applyMove";
 import { createInitialGameState } from "../../core/src/initialPosition";
 import { createSessionToken, hashToken } from "./auth";
+import { issueManagedAuthToken } from "./managedAuth";
 import type { CreateGameInput, Game, JoinGameInput, MoveRecord, Player, Seat } from "./types";
 
 function toIsoNow(): string {
@@ -94,6 +95,7 @@ export class InMemoryStore {
   joinGame(gameId: string, input: JoinGameInput): {
     guestId: string;
     sessionToken: string;
+    managedToken: string | null;
     seat: Seat;
   } {
     const game = this.games.get(gameId);
@@ -142,6 +144,7 @@ export class InMemoryStore {
     return {
       guestId,
       sessionToken,
+      managedToken: issueManagedAuthToken(guestId),
       seat: input.seat,
     };
   }
@@ -152,6 +155,14 @@ export class InMemoryStore {
       return null;
     }
     return players.find((player) => player.sessionTokenHash === tokenHash) ?? null;
+  }
+
+  findPlayerByGuestId(gameId: string, guestId: string): Player | null {
+    const players = this.playersByGame.get(gameId);
+    if (!players) {
+      return null;
+    }
+    return players.find((player) => player.guestId === guestId) ?? null;
   }
 
   getGame(gameId: string): Game | null {

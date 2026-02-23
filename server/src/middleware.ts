@@ -1,5 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import { hashToken } from "./auth";
+import { verifyManagedAuthToken } from "./managedAuth";
 import type { InMemoryStore } from "./store";
 import type { Player } from "./types";
 
@@ -22,7 +23,13 @@ export function requireSessionAuth(req: IncomingMessage, store: InMemoryStore, g
     throw new Error("UNAUTHORIZED");
   }
 
-  const player = store.findPlayerBySessionToken(gameId, hashToken(token));
+  const sessionPlayer = store.findPlayerBySessionToken(gameId, hashToken(token));
+  if (sessionPlayer) {
+    return sessionPlayer;
+  }
+
+  const managed = verifyManagedAuthToken(token);
+  const player = managed ? store.findPlayerByGuestId(gameId, managed.subject) : null;
   if (!player) {
     throw new Error("UNAUTHORIZED");
   }
