@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
+import type { Move } from "../../core/src/types";
 import { applyMove } from "../../core/src/applyMove";
 import { createInitialGameState } from "../../core/src/initialPosition";
 import { createSessionToken, hashToken } from "./auth";
 import type { CreateGameInput, Game, JoinGameInput, MoveRecord, Player, Seat } from "./types";
-import type { Move } from "../../core/src/types";
 
 function toIsoNow(): string {
   return new Date().toISOString();
@@ -13,11 +13,55 @@ function createJoinToken(): string {
   return randomUUID().replaceAll("-", "");
 }
 
+function oppositeSeat(seat: Seat): Seat {
+  return seat === "black" ? "white" : "black";
+}
+
 export class InMemoryStore {
   private readonly games = new Map<string, Game>();
   private readonly joinTokens = new Map<string, string>();
   private readonly playersByGame = new Map<string, Player[]>();
   private readonly movesByGame = new Map<string, MoveRecord[]>();
+
+  private applyElapsedClock(game: Game, seat: Seat, nowMs: number): boolean {
+    const elapsedSeconds = Math.ceil(Math.max(0, nowMs - game.turnStartedAtMs) / 1000);
+
+    if (seat === "black") {
+      if (elapsedSeconds <= game.mainSecondsBlack) {
+        game.mainSecondsBlack -= elapsedSeconds;
+        return false;
+      }
+      const overtime = elapsedSeconds - game.mainSecondsBlack;
+      game.mainSecondsBlack = 0;
+      return overtime > game.byoSecondsBlack;
+    }
+
+    if (elapsedSeconds <= game.mainSecondsWhite) {
+      game.mainSecondsWhite -= elapsedSeconds;
+      return false;
+    }
+    const overtime = elapsedSeconds - game.mainSecondsWhite;
+    game.mainSecondsWhite = 0;
+    return overtime > game.byoSecondsWhite;
+  }
+
+  private settleTimeoutIfNeeded(game: Game): void {
+    if (game.status !== "active") {
+      return;
+    }
+
+    const nowMs = Date.now();
+    const timedOut = this.applyElapsedClock(game, game.turn, nowMs);
+    if (!timedOut) {
+      return;
+    }
+
+    game.status = "finished";
+    game.resultType = "timeout";
+    game.winner = oppositeSeat(game.turn);
+    game.updatedAt = toIsoNow();
+    game.version += 1;
+  }
 
   createGame(input: CreateGameInput): { gameId: string; joinToken: string } {
     const gameId = randomUUID();
@@ -35,6 +79,7 @@ export class InMemoryStore {
       resultType: null,
       winner: null,
       version: 1,
+      turnStartedAtMs: Date.now(),
       createdAt: now,
       updatedAt: now,
     });
@@ -88,6 +133,9 @@ export class InMemoryStore {
 
     players.push(player);
     game.status = players.length === 2 ? "active" : "waiting";
+    if (game.status === "active") {
+      game.turnStartedAtMs = Date.now();
+    }
     game.updatedAt = toIsoNow();
     game.version += 1;
 
@@ -107,7 +155,12 @@ export class InMemoryStore {
   }
 
   getGame(gameId: string): Game | null {
-    return this.games.get(gameId) ?? null;
+    const game = this.games.get(gameId) ?? null;
+    if (!game) {
+      return null;
+    }
+    this.settleTimeoutIfNeeded(game);
+    return game;
   }
 
   submitMove(gameId: string, actor: Player, move: Move, expectedVersion: number): Game {
@@ -115,6 +168,9 @@ export class InMemoryStore {
     if (!game) {
       throw new Error("GAME_NOT_FOUND");
     }
+
+    this.settleTimeoutIfNeeded(game);
+
     if (expectedVersion !== game.version) {
       throw new Error("VERSION_CONFLICT");
     }
@@ -125,6 +181,8 @@ export class InMemoryStore {
       throw new Error("NOT_YOUR_TURN");
     }
 
+    this.applyElapsedClock(game, actor.seat, Date.now());
+
     const result = applyMove(game.state, move);
     if (!result.ok) {
       throw new Error(`ILLEGAL_MOVE:${result.reason}`);
@@ -132,6 +190,7 @@ export class InMemoryStore {
 
     game.state = result.value;
     game.turn = result.value.turn;
+    game.turnStartedAtMs = Date.now();
     game.updatedAt = toIsoNow();
     game.version += 1;
 
@@ -153,15 +212,22 @@ export class InMemoryStore {
     if (!game) {
       throw new Error("GAME_NOT_FOUND");
     }
+
+    this.settleTimeoutIfNeeded(game);
+
     if (game.status === "finished") {
       throw new Error("GAME_ALREADY_FINISHED");
     }
 
     game.status = "finished";
     game.resultType = "resign";
-    game.winner = actor.seat === "black" ? "white" : "black";
+    game.winner = oppositeSeat(actor.seat);
     game.updatedAt = toIsoNow();
     game.version += 1;
     return game;
+  }
+
+  getMoves(gameId: string): MoveRecord[] {
+    return this.movesByGame.get(gameId) ?? [];
   }
 }

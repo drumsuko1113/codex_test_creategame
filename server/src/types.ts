@@ -17,6 +17,7 @@ export type Game = {
   resultType: ResultType | null;
   winner: Seat | null;
   version: number;
+  turnStartedAtMs: number;
   createdAt: string;
   updatedAt: string;
 };
