@@ -101,4 +101,8 @@ export class InMemoryStore {
     }
     return players.find((player) => player.sessionTokenHash === tokenHash) ?? null;
   }
+
+  getGame(gameId: string): Game | null {
+    return this.games.get(gameId) ?? null;
+  }
 }

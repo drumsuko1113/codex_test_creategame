@@ -78,6 +78,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
   }
 
+  const getGameMatch = req.url?.match(/^\/api\/games\/([^/]+)$/);
+  if (req.method === "GET" && getGameMatch) {
+    const game = store.getGame(getGameMatch[1]);
+    if (!game) {
+      writeJson(res, 404, { error: "GAME_NOT_FOUND" });
+      return;
+    }
+    writeJson(res, 200, game);
+    return;
+  }
+
   writeJson(res, 404, { error: "Not Found" });
 }
 
