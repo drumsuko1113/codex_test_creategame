@@ -110,10 +110,13 @@ export class InMemoryStore {
     return this.games.get(gameId) ?? null;
   }
 
-  submitMove(gameId: string, actor: Player, move: Move): Game {
+  submitMove(gameId: string, actor: Player, move: Move, expectedVersion: number): Game {
     const game = this.games.get(gameId);
     if (!game) {
       throw new Error("GAME_NOT_FOUND");
+    }
+    if (expectedVersion !== game.version) {
+      throw new Error("VERSION_CONFLICT");
     }
     if (game.status !== "active") {
       throw new Error("GAME_NOT_ACTIVE");

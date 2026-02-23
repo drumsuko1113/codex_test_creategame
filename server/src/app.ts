@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+﻿import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Move } from "../../core/src/types";
 import { readJsonBody, writeJson } from "./http";
 import { requireSessionAuth } from "./middleware";
@@ -6,6 +6,11 @@ import { InMemoryStore } from "./store";
 import type { CreateGameInput, JoinGameInput } from "./types";
 
 const store = new InMemoryStore();
+
+type MoveRequestBody = {
+  move: Move;
+  expectedVersion: number;
+};
 
 function isValidCreateGameInput(input: CreateGameInput): boolean {
   if (!Number.isInteger(input.mainMinutes) || input.mainMinutes <= 0) {
@@ -15,6 +20,25 @@ function isValidCreateGameInput(input: CreateGameInput): boolean {
     return false;
   }
   return input.byoSeconds === 0 || input.byoSeconds % 10 === 0;
+}
+
+function isValidJoinGameInput(input: JoinGameInput): boolean {
+  const trimmed = input.name?.trim();
+  if (!trimmed || trimmed.length < 2 || trimmed.length > 20) {
+    return false;
+  }
+  if (input.seat !== "black" && input.seat !== "white") {
+    return false;
+  }
+  return typeof input.joinToken === "string" && input.joinToken.length >= 16;
+}
+
+function isMoveRequestBody(input: unknown): input is MoveRequestBody {
+  if (!input || typeof input !== "object") {
+    return false;
+  }
+  const body = input as Record<string, unknown>;
+  return typeof body.expectedVersion === "number" && Number.isInteger(body.expectedVersion) && "move" in body;
 }
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -90,9 +114,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       throw error;
     }
 
-    const move = await readJsonBody<Move>(req);
+    const body = await readJsonBody<unknown>(req);
+    if (!isMoveRequestBody(body)) {
+      writeJson(res, 400, { error: "INVALID_MOVE_PAYLOAD" });
+      return;
+    }
+
     try {
-      const updated = store.submitMove(moveMatch[1], actor, move);
+      const updated = store.submitMove(moveMatch[1], actor, body.move, body.expectedVersion);
       writeJson(res, 200, updated);
       return;
     } catch (error) {
@@ -101,7 +130,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         writeJson(res, 404, { error: message });
         return;
       }
-      if (message === "GAME_NOT_ACTIVE" || message === "NOT_YOUR_TURN") {
+      if (message === "GAME_NOT_ACTIVE" || message === "NOT_YOUR_TURN" || message === "VERSION_CONFLICT") {
         writeJson(res, 409, { error: message });
         return;
       }
@@ -114,17 +143,6 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   writeJson(res, 404, { error: "Not Found" });
-}
-
-function isValidJoinGameInput(input: JoinGameInput): boolean {
-  const trimmed = input.name?.trim();
-  if (!trimmed || trimmed.length < 2 || trimmed.length > 20) {
-    return false;
-  }
-  if (input.seat !== "black" && input.seat !== "white") {
-    return false;
-  }
-  return typeof input.joinToken === "string" && input.joinToken.length >= 16;
 }
 
 export function createApp() {
