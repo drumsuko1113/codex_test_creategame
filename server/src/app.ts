@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readJsonBody, writeJson } from "./http";
 import { InMemoryStore } from "./store";
-import type { CreateGameInput } from "./types";
+import type { CreateGameInput, JoinGameInput } from "./types";
 
 const store = new InMemoryStore();
 
@@ -33,7 +33,48 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
+  const joinMatch = req.url?.match(/^\/api\/games\/([^/]+)\/join$/);
+  if (req.method === "POST" && joinMatch) {
+    const body = await readJsonBody<JoinGameInput>(req);
+    if (!isValidJoinGameInput(body)) {
+      writeJson(res, 400, { error: "Invalid join payload" });
+      return;
+    }
+
+    try {
+      const joined = store.joinGame(joinMatch[1], body);
+      writeJson(res, 200, joined);
+      return;
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "UNKNOWN";
+      if (code === "GAME_NOT_FOUND") {
+        writeJson(res, 404, { error: code });
+        return;
+      }
+      if (code === "INVALID_JOIN_TOKEN") {
+        writeJson(res, 401, { error: code });
+        return;
+      }
+      if (code === "GAME_IS_FULL" || code === "SEAT_ALREADY_TAKEN") {
+        writeJson(res, 409, { error: code });
+        return;
+      }
+      throw error;
+    }
+  }
+
   writeJson(res, 404, { error: "Not Found" });
+}
+
+function isValidJoinGameInput(input: JoinGameInput): boolean {
+  const trimmed = input.name?.trim();
+  if (!trimmed || trimmed.length < 2 || trimmed.length > 20) {
+    return false;
+  }
+  if (input.seat !== "black" && input.seat !== "white") {
+    return false;
+  }
+  return typeof input.joinToken === "string" && input.joinToken.length >= 16;
 }
 
 export function createApp() {

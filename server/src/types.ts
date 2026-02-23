@@ -34,3 +34,9 @@ export type CreateGameInput = {
   mainMinutes: number;
   byoSeconds: number;
 };
+
+export type JoinGameInput = {
+  name: string;
+  seat: Seat;
+  joinToken: string;
+};
