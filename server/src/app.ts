@@ -53,6 +53,17 @@ function respond(
   });
 }
 
+function respondError(
+  res: ServerResponse,
+  ctx: RequestContext,
+  statusCode: number,
+  code: string,
+  message: string,
+  meta?: { gameId?: string; guestId?: string; event?: string },
+): void {
+  respond(res, ctx, statusCode, { error: { code, message } }, meta);
+}
+
 function isValidCreateGameInput(input: CreateGameInput): boolean {
   if (!Number.isInteger(input.mainMinutes) || input.mainMinutes <= 0) {
     return false;
@@ -88,7 +99,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   if (ctx.path.startsWith("/api/")) {
     const ip = req.socket.remoteAddress ?? "unknown";
     if (!rateLimiter.consume(ip)) {
-      respond(res, ctx, 429, { error: "RATE_LIMIT_EXCEEDED" });
+      respondError(res, ctx, 429, "RATE_LIMIT_EXCEEDED", "Too many requests");
       return;
     }
   }
@@ -101,7 +112,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   if (req.method === "POST" && req.url === "/api/games") {
     const body = await readJsonBody<CreateGameInput>(req);
     if (!isValidCreateGameInput(body)) {
-      respond(res, ctx, 400, { error: "Invalid create game payload" });
+      respondError(res, ctx, 400, "INVALID_CREATE_GAME_PAYLOAD", "Invalid create game payload");
       return;
     }
 
@@ -115,7 +126,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     const gameId = joinMatch[1];
     const body = await readJsonBody<JoinGameInput>(req);
     if (!isValidJoinGameInput(body)) {
-      respond(res, ctx, 400, { error: "Invalid join payload" }, { gameId });
+      respondError(res, ctx, 400, "INVALID_JOIN_PAYLOAD", "Invalid join payload", { gameId });
       return;
     }
 
@@ -126,15 +137,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     } catch (error) {
       const code = error instanceof Error ? error.message : "UNKNOWN";
       if (code === "GAME_NOT_FOUND") {
-        respond(res, ctx, 404, { error: code }, { gameId });
+        respondError(res, ctx, 404, code, "Game was not found", { gameId });
         return;
       }
       if (code === "INVALID_JOIN_TOKEN") {
-        respond(res, ctx, 401, { error: code }, { gameId });
+        respondError(res, ctx, 401, code, "Join token is invalid", { gameId });
         return;
       }
       if (code === "GAME_IS_FULL" || code === "SEAT_ALREADY_TAKEN") {
-        respond(res, ctx, 409, { error: code }, { gameId });
+        respondError(res, ctx, 409, code, "Seat is unavailable", { gameId });
         return;
       }
       throw error;
@@ -146,7 +157,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     const gameId = recordsMatch[1];
     const game = store.getGame(gameId);
     if (!game) {
-      respond(res, ctx, 404, { error: "GAME_NOT_FOUND" }, { gameId });
+      respondError(res, ctx, 404, "GAME_NOT_FOUND", "Game was not found", { gameId });
       return;
     }
 
@@ -171,7 +182,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     const gameId = getGameMatch[1];
     const game = store.getGame(gameId);
     if (!game) {
-      respond(res, ctx, 404, { error: "GAME_NOT_FOUND" }, { gameId });
+      respondError(res, ctx, 404, "GAME_NOT_FOUND", "Game was not found", { gameId });
       return;
     }
     respond(res, ctx, 200, game, { gameId, event: "game.snapshot" });
@@ -188,7 +199,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     } catch (error) {
       const code = error instanceof Error ? error.message : "UNAUTHORIZED";
       if (code === "UNAUTHORIZED") {
-        respond(res, ctx, 401, { error: code }, { gameId });
+        respondError(res, ctx, 401, code, "Session token is missing or invalid", { gameId });
         return;
       }
       throw error;
@@ -196,7 +207,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
     const body = await readJsonBody<unknown>(req);
     if (!isMoveRequestBody(body)) {
-      respond(res, ctx, 400, { error: "INVALID_MOVE_PAYLOAD" }, { gameId, guestId: actor.guestId });
+      respondError(res, ctx, 400, "INVALID_MOVE_PAYLOAD", "Move payload is invalid", { gameId, guestId: actor.guestId });
       return;
     }
 
@@ -207,15 +218,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     } catch (error) {
       const message = error instanceof Error ? error.message : "UNKNOWN";
       if (message === "GAME_NOT_FOUND") {
-        respond(res, ctx, 404, { error: message }, { gameId, guestId: actor.guestId });
+        respondError(res, ctx, 404, message, "Game was not found", { gameId, guestId: actor.guestId });
         return;
       }
       if (message === "GAME_NOT_ACTIVE" || message === "NOT_YOUR_TURN" || message === "VERSION_CONFLICT") {
-        respond(res, ctx, 409, { error: message }, { gameId, guestId: actor.guestId });
+        respondError(res, ctx, 409, message, "Move cannot be applied in current game state", { gameId, guestId: actor.guestId });
         return;
       }
       if (message.startsWith("ILLEGAL_MOVE:")) {
-        respond(res, ctx, 400, { error: message }, { gameId, guestId: actor.guestId });
+        respondError(res, ctx, 400, "ILLEGAL_MOVE", message, { gameId, guestId: actor.guestId });
         return;
       }
       throw error;
@@ -232,7 +243,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     } catch (error) {
       const code = error instanceof Error ? error.message : "UNAUTHORIZED";
       if (code === "UNAUTHORIZED") {
-        respond(res, ctx, 401, { error: code }, { gameId });
+        respondError(res, ctx, 401, code, "Session token is missing or invalid", { gameId });
         return;
       }
       throw error;
@@ -245,18 +256,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     } catch (error) {
       const message = error instanceof Error ? error.message : "UNKNOWN";
       if (message === "GAME_NOT_FOUND") {
-        respond(res, ctx, 404, { error: message }, { gameId, guestId: actor.guestId });
+        respondError(res, ctx, 404, message, "Game was not found", { gameId, guestId: actor.guestId });
         return;
       }
       if (message === "GAME_ALREADY_FINISHED") {
-        respond(res, ctx, 409, { error: message }, { gameId, guestId: actor.guestId });
+        respondError(res, ctx, 409, message, "Game is already finished", { gameId, guestId: actor.guestId });
         return;
       }
       throw error;
     }
   }
 
-  respond(res, ctx, 404, { error: "Not Found" });
+  respondError(res, ctx, 404, "NOT_FOUND", "Route not found");
 }
 
 export function createApp() {
@@ -272,7 +283,7 @@ export function createApp() {
         path: ctx.path,
         message,
       });
-      respond(res, ctx, 500, { error: message });
+      respondError(res, ctx, 500, "INTERNAL_ERROR", message);
     });
   });
 }
