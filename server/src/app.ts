@@ -141,6 +141,31 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
   }
 
+  const recordsMatch = req.url?.match(/^\/api\/games\/([^/]+)\/records$/);
+  if (req.method === "GET" && recordsMatch) {
+    const gameId = recordsMatch[1];
+    const game = store.getGame(gameId);
+    if (!game) {
+      respond(res, ctx, 404, { error: "GAME_NOT_FOUND" }, { gameId });
+      return;
+    }
+
+    respond(
+      res,
+      ctx,
+      200,
+      {
+        gameId,
+        status: game.status,
+        winner: game.winner,
+        resultType: game.resultType,
+        moves: store.getMoves(gameId),
+      },
+      { gameId, event: "game.records" },
+    );
+    return;
+  }
+
   const getGameMatch = req.url?.match(/^\/api\/games\/([^/]+)$/);
   if (req.method === "GET" && getGameMatch) {
     const gameId = getGameMatch[1];
