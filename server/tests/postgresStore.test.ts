@@ -1,0 +1,100 @@
+import { afterAll, describe, expect, test } from "vitest";
+import { newDb } from "pg-mem";
+import { PostgresStore } from "../src/store";
+
+const db = newDb({ autoCreateForeignKeyIndices: true, noAstCoverageCheck: true });
+const { Pool } = db.adapters.createPg();
+const pool = new Pool();
+
+afterAll(async () => {
+  await pool.end();
+});
+
+describe("PostgresStore", () => {
+  test("persists game state and move records across store re-instantiation", async () => {
+    const store1 = new PostgresStore(pool);
+    const created = await store1.createGame({ mainMinutes: 5, byoSeconds: 30 });
+
+    const black = await store1.joinGame(created.gameId, {
+      name: "black",
+      seat: "black",
+      joinToken: created.joinToken,
+    });
+    await store1.joinGame(created.gameId, {
+      name: "white",
+      seat: "white",
+      joinToken: created.joinToken,
+    });
+
+    const snapshot = await store1.getGame(created.gameId);
+    expect(snapshot).not.toBeNull();
+    if (!snapshot) {
+      return;
+    }
+
+    const actor = await store1.findPlayerByGuestId(created.gameId, black.guestId);
+    expect(actor).not.toBeNull();
+    if (!actor) {
+      return;
+    }
+
+    await store1.submitMove(
+      created.gameId,
+      actor,
+      { from: { x: 0, y: 6 }, to: { x: 0, y: 5 } },
+      snapshot.version,
+    );
+
+    const store2 = new PostgresStore(pool);
+    const restored = await store2.getGame(created.gameId);
+    expect(restored).not.toBeNull();
+    expect(restored?.version).toBe(snapshot.version + 1);
+
+    const records = await store2.getMoves(created.gameId);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.ply).toBe(1);
+  });
+
+  test("throws VERSION_CONFLICT when expectedVersion is stale", async () => {
+    const store = new PostgresStore(pool);
+    const created = await store.createGame({ mainMinutes: 5, byoSeconds: 30 });
+    const black = await store.joinGame(created.gameId, {
+      name: "black",
+      seat: "black",
+      joinToken: created.joinToken,
+    });
+    await store.joinGame(created.gameId, {
+      name: "white",
+      seat: "white",
+      joinToken: created.joinToken,
+    });
+
+    const game = await store.getGame(created.gameId);
+    expect(game).not.toBeNull();
+    if (!game) {
+      return;
+    }
+
+    const actor = await store.findPlayerByGuestId(created.gameId, black.guestId);
+    expect(actor).not.toBeNull();
+    if (!actor) {
+      return;
+    }
+
+    await store.submitMove(
+      created.gameId,
+      actor,
+      { from: { x: 0, y: 6 }, to: { x: 0, y: 5 } },
+      game.version,
+    );
+
+    await expect(
+      store.submitMove(
+        created.gameId,
+        actor,
+        { from: { x: 0, y: 5 }, to: { x: 0, y: 4 } },
+        game.version,
+      ),
+    ).rejects.toThrow("VERSION_CONFLICT");
+  });
+});
