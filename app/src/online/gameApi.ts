@@ -1,4 +1,8 @@
+import type { GameState, Move } from "../../../core/src/types";
+
 type Seat = "black" | "white";
+type GameStatus = "waiting" | "active" | "finished";
+type ResultType = "checkmate" | "resign" | "timeout" | "repetition";
 
 export type CreateGameRequest = {
   mainMinutes: number;
@@ -22,6 +26,35 @@ export type JoinGameResponse = {
   sessionToken: string;
   managedToken: string | null;
   seat: Seat;
+};
+
+export type GameSnapshot = {
+  id: string;
+  status: GameStatus;
+  turn: Seat;
+  state: GameState;
+  mainSecondsBlack: number;
+  mainSecondsWhite: number;
+  byoSecondsBlack: number;
+  byoSecondsWhite: number;
+  resultType: ResultType | null;
+  winner: Seat | null;
+  version: number;
+  turnStartedAtMs: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SubmitMoveRequest = {
+  gameId: string;
+  sessionToken: string;
+  expectedVersion: number;
+  move: Move;
+};
+
+export type ResignGameRequest = {
+  gameId: string;
+  sessionToken: string;
 };
 
 type ErrorPayload = {
@@ -65,7 +98,7 @@ async function parseJsonSafely(response: Response): Promise<unknown> {
   }
 }
 
-async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
+async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url, init);
@@ -102,5 +135,32 @@ export async function joinGame(input: JoinGameRequest, baseUrl?: string): Promis
       seat: input.seat,
       joinToken: input.joinToken,
     }),
+  });
+}
+
+export async function getGameSnapshot(gameId: string, baseUrl?: string): Promise<GameSnapshot> {
+  return requestJson<GameSnapshot>(buildApiUrl(`/api/games/${gameId}`, baseUrl));
+}
+
+export async function submitMove(input: SubmitMoveRequest, baseUrl?: string): Promise<GameSnapshot> {
+  return requestJson<GameSnapshot>(buildApiUrl(`/api/games/${input.gameId}/moves`, baseUrl), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.sessionToken}`,
+    },
+    body: JSON.stringify({
+      expectedVersion: input.expectedVersion,
+      move: input.move,
+    }),
+  });
+}
+
+export async function resignGame(input: ResignGameRequest, baseUrl?: string): Promise<GameSnapshot> {
+  return requestJson<GameSnapshot>(buildApiUrl(`/api/games/${input.gameId}/resign`, baseUrl), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${input.sessionToken}`,
+    },
   });
 }
