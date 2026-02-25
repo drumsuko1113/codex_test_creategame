@@ -22,6 +22,7 @@ import {
 import { buildResultText, toClockState } from "./online/gameSnapshot";
 import { formatLobbyError, validateCreateGameForm, validateJoinGameForm } from "./online/lobbyValidation";
 import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
+import { computePollingRetryDelayMs, isRetryableNetworkError } from "./online/networkRecovery";
 import { clearStoredSession, loadStoredSession, saveStoredSession } from "./online/sessionPersistence";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
@@ -82,12 +83,15 @@ export function App() {
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
   const [gameMessage, setGameMessage] = useState<string | null>(null);
+  const [networkBannerMessage, setNetworkBannerMessage] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState<boolean>(() => (typeof navigator !== "undefined" ? !navigator.onLine : false));
   const [isSyncingSnapshot, setIsSyncingSnapshot] = useState(false);
   const [isSubmittingMove, setIsSubmittingMove] = useState(false);
   const [isSubmittingResign, setIsSubmittingResign] = useState(false);
   const pieceSoundRef = useRef<HTMLAudioElement | null>(null);
   const latestVersionRef = useRef(gameVersion);
   const pollingInFlightRef = useRef(false);
+  const pollingFailureCountRef = useRef(0);
 
   useEffect(() => {
     pieceSoundRef.current = new Audio(PIECE_SOUND_PATH);
@@ -108,6 +112,17 @@ export function App() {
     setSelected(null);
     setSelectedDrop(null);
     setPendingPromotion(null);
+  }, []);
+
+  const setNetworkBannerFromError = useCallback((error: unknown) => {
+    if (!isRetryableNetworkError(error)) {
+      return;
+    }
+
+    const message = typeof navigator !== "undefined" && !navigator.onLine
+      ? "オフラインです。ネットワーク復帰後に再試行してください。"
+      : "通信に失敗しました。再試行してください。";
+    setNetworkBannerMessage(message);
   }, []);
 
   const applySnapshot = useCallback(
@@ -187,11 +202,15 @@ export function App() {
       try {
         const snapshot = await getGameSnapshot(gameId);
         if (onlyIfVersionAdvanced && !shouldApplySnapshot(latestVersionRef.current, snapshot.version)) {
-          return false;
+          return true;
         }
         applySnapshot(snapshot, { showDialog });
+        if (typeof navigator === "undefined" || navigator.onLine) {
+          setNetworkBannerMessage(null);
+        }
         return true;
       } catch (error) {
+        setNetworkBannerFromError(error);
         if (!suppressError) {
           setGameMessage(toGameErrorMessage(error));
         }
@@ -202,7 +221,7 @@ export function App() {
         }
       }
     },
-    [applySnapshot, toGameErrorMessage],
+    [applySnapshot, toGameErrorMessage, setNetworkBannerFromError],
   );
 
   useEffect(() => {
@@ -299,7 +318,9 @@ export function App() {
       setJoinToken(created.joinToken);
       setCreateMessage(`対局を作成しました。gameId: ${created.gameId}`);
       setTimeControl(normalizeTimeControl(validated.value.mainMinutes, validated.value.byoSeconds));
+      setNetworkBannerMessage(null);
     } catch (error) {
+      setNetworkBannerFromError(error);
       if (error instanceof ApiClientError) {
         setCreateMessage(formatLobbyError(error));
       } else {
@@ -308,7 +329,7 @@ export function App() {
     } finally {
       setIsCreating(false);
     }
-  }, [createMainMinutes, createByoSeconds]);
+  }, [createMainMinutes, createByoSeconds, setNetworkBannerFromError]);
 
   const onJoinGame = useCallback(async () => {
     const validated = validateJoinGameForm({
@@ -338,8 +359,10 @@ export function App() {
       saveStoredSession(nextSession);
       await syncSnapshot(nextSession.gameId, { showDialog: false });
       setGameMessage(null);
+      setNetworkBannerMessage(null);
       setScreenMode("game");
     } catch (error) {
+      setNetworkBannerFromError(error);
       if (error instanceof ApiClientError) {
         setJoinMessage(formatLobbyError(error));
       } else {
@@ -348,7 +371,7 @@ export function App() {
     } finally {
       setIsJoining(false);
     }
-  }, [joinGameId, joinToken, joinName, joinSeat, syncSnapshot]);
+  }, [joinGameId, joinToken, joinName, joinSeat, syncSnapshot, setNetworkBannerFromError]);
 
   useEffect(() => {
     if (screenMode !== "game" || !session || gameOver) {
@@ -362,10 +385,11 @@ export function App() {
       if (disposed) {
         return;
       }
-      const intervalMs = getPollingIntervalMs(document.hidden);
+      const baseIntervalMs = getPollingIntervalMs(document.hidden);
+      const delayMs = computePollingRetryDelayMs(baseIntervalMs, pollingFailureCountRef.current);
       timerId = window.setTimeout(() => {
         void pollOnce();
-      }, intervalMs);
+      }, delayMs);
     };
 
     const pollOnce = async () => {
@@ -379,12 +403,21 @@ export function App() {
 
       pollingInFlightRef.current = true;
       try {
-        await syncSnapshot(session.gameId, {
+        const synced = await syncSnapshot(session.gameId, {
           showDialog: false,
           suppressError: true,
           onlyIfVersionAdvanced: true,
           background: true,
         });
+
+        if (synced) {
+          pollingFailureCountRef.current = 0;
+          if (!isOffline) {
+            setNetworkBannerMessage(null);
+          }
+        } else {
+          pollingFailureCountRef.current += 1;
+        }
       } finally {
         pollingInFlightRef.current = false;
         scheduleNext();
@@ -399,6 +432,40 @@ export function App() {
       if (timerId !== null) {
         window.clearTimeout(timerId);
       }
+    };
+  }, [screenMode, session, gameOver, syncSnapshot, isOffline]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleOffline = () => {
+      setIsOffline(true);
+      setNetworkBannerMessage("オフラインです。ネットワーク復帰を待機しています。");
+    };
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      pollingFailureCountRef.current = 0;
+      setNetworkBannerMessage("ネットワークに再接続しました。同期を再試行します。");
+
+      if (screenMode === "game" && session && !gameOver) {
+        void syncSnapshot(session.gameId, { showDialog: false, suppressError: true }).then((synced) => {
+          if (synced) {
+            setNetworkBannerMessage(null);
+            setGameMessage(null);
+          }
+        });
+      }
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
     };
   }, [screenMode, session, gameOver, syncSnapshot]);
 
@@ -476,10 +543,12 @@ export function App() {
           void pieceSoundRef.current.play().catch(() => {});
         }
         applySnapshot(updated, { showDialog: true });
+        setNetworkBannerMessage(null);
       } catch (error) {
         if (error instanceof ApiClientError && error.code === "VERSION_CONFLICT") {
           await syncSnapshot(session.gameId, { showDialog: false });
         }
+        setNetworkBannerFromError(error);
         setGameMessage(toGameErrorMessage(error));
       } finally {
         setIsSubmittingMove(false);
@@ -558,6 +627,7 @@ export function App() {
     setShowRestartDialog(false);
     setIsPaused(false);
     setGameMessage(null);
+    setNetworkBannerMessage(null);
     clearStoredSession();
     setSession(null);
     setMoveHistory([]);
@@ -580,15 +650,30 @@ export function App() {
       const moveNumber = moveHistory.length + 1;
       setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(state.turn)}投了`, to: null }]);
       applySnapshot(updated, { showDialog: true });
+      setNetworkBannerMessage(null);
     } catch (error) {
       if (error instanceof ApiClientError && error.code === "GAME_ALREADY_FINISHED") {
         await syncSnapshot(session.gameId, { showDialog: false });
       }
+      setNetworkBannerFromError(error);
       setGameMessage(toGameErrorMessage(error));
     } finally {
       setIsSubmittingResign(false);
     }
   }, [screenMode, gameOver, isPaused, session, isSubmittingResign, isSyncingSnapshot, moveHistory.length, state.turn, applySnapshot, syncSnapshot, toGameErrorMessage]);
+
+  const retrySync = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    const synced = await syncSnapshot(session.gameId, { showDialog: false });
+    if (synced) {
+      pollingFailureCountRef.current = 0;
+      setNetworkBannerMessage(null);
+      setGameMessage(null);
+    }
+  }, [session, syncSnapshot]);
 
   if (screenMode === "setup") {
     return (
@@ -641,6 +726,21 @@ export function App() {
           gameId: {session.gameId} / seat: {session.seat} / name: {session.displayName} / version: {gameVersion}
         </p>
       ) : null}
+      {networkBannerMessage ? (
+        <section className={`network-banner ${isOffline ? "is-offline" : ""}`.trim()} role="status" aria-live="polite">
+          <span>{networkBannerMessage}</span>
+          <button
+            type="button"
+            className="network-retry-button"
+            onClick={() => {
+              void retrySync();
+            }}
+            disabled={!session || isSyncingSnapshot}
+          >
+            再試行
+          </button>
+        </section>
+      ) : null}
       <section className="game-actions" aria-label="game actions">
         <button
           type="button"
@@ -654,9 +754,7 @@ export function App() {
           type="button"
           className="setup-button"
           onClick={() => {
-            if (session) {
-              void syncSnapshot(session.gameId, { showDialog: false });
-            }
+            void retrySync();
           }}
           disabled={!session || isSyncingSnapshot}
         >
@@ -730,7 +828,7 @@ export function App() {
             type="button"
             className="restart-button"
             onClick={() => {
-              void syncSnapshot(session.gameId, { showDialog: false });
+              void retrySync();
             }}
           >
             局面再取得
