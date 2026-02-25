@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { findKingPosition, isInCheck } from "../../core/src/check";
+import { isCheckmate } from "../../core/src/checkmate";
 import { createInitialGameState } from "../../core/src/initialPosition";
+import { generateLegalMoves } from "../../core/src/moveGenerator";
 import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
 import { type BoardMove, type Color, type GameState, type Move, type PieceKind, type Position } from "../../core/src/types";
 import { PIECE_SOUND_PATH } from "./assets";
-import { formatMoveText, sideLabel, winnerLabel } from "./game/moveText";
+import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/moveText";
 import { positionToKey } from "./game/position";
 import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, normalizeTimeControl, type ClockState, type TimeControl } from "./game/timeControl";
 import { canOperateTurn, getTurnLockMessage } from "./game/turnControl";
@@ -24,6 +26,8 @@ import { formatLobbyError, validateCreateGameForm, validateJoinGameForm } from "
 import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
 import { computePollingRetryDelayMs, isRetryableNetworkError } from "./online/networkRecovery";
 import { clearStoredSession, loadStoredSession, saveStoredSession } from "./online/sessionPersistence";
+import { chooseRandomMove } from "../../bot/src/randomBot";
+import { getBotResignOutcome, isBotTurn } from "./game/botMode";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
 import { Hand } from "./ui/Hand";
@@ -41,6 +45,7 @@ type MoveRecord = {
 };
 
 type ScreenMode = "setup" | "game";
+type MatchMode = "online" | "bot";
 
 type SessionState = {
   gameId: string;
@@ -54,18 +59,24 @@ export function App() {
   const initialState = useMemo(() => createInitialGameState(), []);
 
   const [screenMode, setScreenMode] = useState<ScreenMode>("setup");
+  const [setupMode, setSetupMode] = useState<MatchMode>("online");
+  const [matchMode, setMatchMode] = useState<MatchMode>("online");
   const [createMainMinutes, setCreateMainMinutes] = useState<string>(String(Math.floor(initialTimeControl.mainSeconds / 60)));
   const [createByoSeconds, setCreateByoSeconds] = useState<string>(String(initialTimeControl.byoSeconds));
   const [joinGameId, setJoinGameId] = useState<string>("");
   const [joinToken, setJoinToken] = useState<string>("");
   const [joinName, setJoinName] = useState<string>("");
   const [joinSeat, setJoinSeat] = useState<Color>("black");
+  const [botName, setBotName] = useState<string>("player");
+  const [botSeat, setBotSeat] = useState<Color>("black");
   const [createErrors, setCreateErrors] = useState<string[]>([]);
   const [joinErrors, setJoinErrors] = useState<string[]>([]);
   const [createMessage, setCreateMessage] = useState<string | null>(null);
   const [joinMessage, setJoinMessage] = useState<string | null>(null);
+  const [botMessage, setBotMessage] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [isStartingBot, setIsStartingBot] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
   const [timeControl, setTimeControl] = useState<TimeControl>(initialTimeControl);
@@ -114,14 +125,23 @@ export function App() {
     setPendingPromotion(null);
   }, []);
 
+  const onSetupModeChange = useCallback((mode: MatchMode) => {
+    setSetupMode(mode);
+    setCreateErrors([]);
+    setJoinErrors([]);
+    setCreateMessage(null);
+    setJoinMessage(null);
+    setBotMessage(null);
+  }, []);
+
   const setNetworkBannerFromError = useCallback((error: unknown) => {
     if (!isRetryableNetworkError(error)) {
       return;
     }
 
     const message = typeof navigator !== "undefined" && !navigator.onLine
-      ? "ƒIƒtƒ‰ƒCƒ“‚Å‚·Bƒlƒbƒgƒ[ƒN•œ‹AŒã‚ÉÄs‚µ‚Ä‚­‚¾‚³‚¢B"
-      : "’ÊM‚É¸”s‚µ‚Ü‚µ‚½BÄs‚µ‚Ä‚­‚¾‚³‚¢B";
+      ? "ã‚ªãƒ•ãƒ©ã‚¤ãƒ³ã§ã™ã€‚ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯å¾©å¸°å¾Œã«å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚"
+      : "é€šä¿¡ã«å¤±æ•—ã—ã¾ã—ãŸã€‚å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚";
     setNetworkBannerMessage(message);
   }, []);
 
@@ -143,9 +163,11 @@ export function App() {
     [clearSelections],
   );
 
+  const playerSeat = matchMode === "bot" ? botSeat : session?.seat ?? null;
+
   const canOperateNow = canOperateTurn({
     screenMode,
-    sessionSeat: session?.seat ?? null,
+    sessionSeat: playerSeat,
     turn: state.turn,
     gameOver,
     isPaused,
@@ -167,16 +189,16 @@ export function App() {
 
   const toGameErrorMessage = useCallback((error: unknown): string => {
     if (!(error instanceof ApiClientError)) {
-      return "‘Î‹Ç‘€ì‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B";
+      return "å¯¾å±€æ“ä½œã«å¤±æ•—ã—ã¾ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚";
     }
 
     const byCode: Record<string, string> = {
-      VERSION_CONFLICT: "‘¼ƒvƒŒƒCƒ„[‚Ì’…è‚ªæ‚É”½‰f‚³‚ê‚Ü‚µ‚½B‹Ç–Ê‚ğÄæ“¾‚µ‚Ü‚·B",
-      GAME_NOT_ACTIVE: "‘Î‹Ç‚ªŠJn‚µ‚Ä‚¢‚È‚¢‚½‚ß’…è‚Å‚«‚Ü‚¹‚ñB",
-      NOT_YOUR_TURN: "Œ»İ‚Í‚ ‚È‚½‚Ìè”Ô‚Å‚Í‚ ‚è‚Ü‚¹‚ñB",
-      GAME_ALREADY_FINISHED: "‘Î‹Ç‚Í‚·‚Å‚ÉI—¹‚µ‚Ä‚¢‚Ü‚·B",
-      ILLEGAL_MOVE: "•s³‚È’…è‚Å‚·B“ü—Í“à—e‚ğŠm”F‚µ‚Ä‚­‚¾‚³‚¢B",
-      UNAUTHORIZED: "ƒZƒbƒVƒ‡ƒ“‚ª–³Œø‚Å‚·B‘Î‹Ç‚Ö‚ÌQ‰Á‚ğ‚â‚è’¼‚µ‚Ä‚­‚¾‚³‚¢B",
+      VERSION_CONFLICT: "ä»–ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼ã®ç€æ‰‹ãŒå…ˆã«åæ˜ ã•ã‚Œã¾ã—ãŸã€‚å±€é¢ã‚’å†å–å¾—ã—ã¾ã™ã€‚",
+      GAME_NOT_ACTIVE: "å¯¾å±€ãŒé–‹å§‹ã—ã¦ã„ãªã„ãŸã‚ç€æ‰‹ã§ãã¾ã›ã‚“ã€‚",
+      NOT_YOUR_TURN: "ç¾åœ¨ã¯ã‚ãªãŸã®æ‰‹ç•ªã§ã¯ã‚ã‚Šã¾ã›ã‚“ã€‚",
+      GAME_ALREADY_FINISHED: "å¯¾å±€ã¯ã™ã§ã«çµ‚äº†ã—ã¦ã„ã¾ã™ã€‚",
+      ILLEGAL_MOVE: "ä¸æ­£ãªç€æ‰‹ã§ã™ã€‚å…¥åŠ›å†…å®¹ã‚’ç¢ºèªã—ã¦ãã ã•ã„ã€‚",
+      UNAUTHORIZED: "ã‚»ãƒƒã‚·ãƒ§ãƒ³ãŒç„¡åŠ¹ã§ã™ã€‚å¯¾å±€ã¸ã®å‚åŠ ã‚’ã‚„ã‚Šç›´ã—ã¦ãã ã•ã„ã€‚",
     };
 
     if (error.code in byCode) {
@@ -237,7 +259,7 @@ export function App() {
       setJoinGameId(stored.gameId);
       setJoinName(stored.displayName);
       setJoinSeat(stored.seat);
-      setJoinMessage("‘O‰ñ‘Î‹Ç‚ğ•œŒ³’†‚Å‚·...");
+      setJoinMessage("å‰å›å¯¾å±€ã‚’å¾©å…ƒä¸­ã§ã™...");
 
       try {
         const player = await getSessionPlayer({
@@ -272,6 +294,7 @@ export function App() {
         saveStoredSession(restoredSession);
         setJoinMessage(null);
         setGameMessage(null);
+        setMatchMode("online");
         setScreenMode("game");
       } catch (error) {
         if (disposed) {
@@ -283,9 +306,9 @@ export function App() {
         setScreenMode("setup");
 
         if (error instanceof ApiClientError && (error.code === "UNAUTHORIZED" || error.code === "GAME_NOT_FOUND")) {
-          setJoinMessage("•Û‘¶‚³‚ê‚½ƒZƒbƒVƒ‡ƒ“‚Í–³Œø‚Å‚·BÄQ‰Á‚µ‚Ä‚­‚¾‚³‚¢B");
+          setJoinMessage("ä¿å­˜ã•ã‚ŒãŸã‚»ãƒƒã‚·ãƒ§ãƒ³ã¯ç„¡åŠ¹ã§ã™ã€‚å†å‚åŠ ã—ã¦ãã ã•ã„ã€‚");
         } else {
-          setJoinMessage("‘O‰ñ‘Î‹Ç‚Ì•œŒ³‚É¸”s‚µ‚Ü‚µ‚½BÄQ‰Á‚µ‚Ä‚­‚¾‚³‚¢B");
+          setJoinMessage("å‰å›å¯¾å±€ã®å¾©å…ƒã«å¤±æ•—ã—ã¾ã—ãŸã€‚å†å‚åŠ ã—ã¦ãã ã•ã„ã€‚");
         }
       } finally {
         if (!disposed) {
@@ -316,7 +339,7 @@ export function App() {
       const created = await createGame(validated.value);
       setJoinGameId(created.gameId);
       setJoinToken(created.joinToken);
-      setCreateMessage(`‘Î‹Ç‚ğì¬‚µ‚Ü‚µ‚½BgameId: ${created.gameId}`);
+      setCreateMessage(`å¯¾å±€ã‚’ä½œæˆã—ã¾ã—ãŸã€‚gameId: ${created.gameId}`);
       setTimeControl(normalizeTimeControl(validated.value.mainMinutes, validated.value.byoSeconds));
       setNetworkBannerMessage(null);
     } catch (error) {
@@ -324,7 +347,7 @@ export function App() {
       if (error instanceof ApiClientError) {
         setCreateMessage(formatLobbyError(error));
       } else {
-        setCreateMessage("‘Î‹Çì¬‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B");
+        setCreateMessage("å¯¾å±€ä½œæˆã«å¤±æ•—ã—ã¾ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚");
       }
     } finally {
       setIsCreating(false);
@@ -360,21 +383,62 @@ export function App() {
       await syncSnapshot(nextSession.gameId, { showDialog: false });
       setGameMessage(null);
       setNetworkBannerMessage(null);
+      setMatchMode("online");
       setScreenMode("game");
     } catch (error) {
       setNetworkBannerFromError(error);
       if (error instanceof ApiClientError) {
         setJoinMessage(formatLobbyError(error));
       } else {
-        setJoinMessage("‘Î‹ÇQ‰Á‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B");
+        setJoinMessage("å¯¾å±€å‚åŠ ã«å¤±æ•—ã—ã¾ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚");
       }
     } finally {
       setIsJoining(false);
     }
   }, [joinGameId, joinToken, joinName, joinSeat, syncSnapshot, setNetworkBannerFromError]);
 
+  const onStartBotGame = useCallback(() => {
+    const normalizedName = botName.trim();
+    if (!normalizedName) {
+      setBotMessage("\u8868\u793a\u540d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002");
+      return;
+    }
+
+    setIsStartingBot(true);
+    try {
+      setBotName(normalizedName);
+      const localSession: SessionState = {
+        gameId: "local-bot",
+        seat: botSeat,
+        displayName: normalizedName,
+        sessionToken: "local-bot",
+      };
+
+      clearStoredSession();
+      setSession(localSession);
+      setMatchMode("bot");
+      setScreenMode("game");
+      setState(initialState);
+      setClockState(createClockState(initialTimeControl));
+      setGameVersion(1);
+      latestVersionRef.current = 1;
+      setWinner(null);
+      setResultText(null);
+      setGameOver(false);
+      setShowRestartDialog(false);
+      setIsPaused(false);
+      setMoveHistory([]);
+      setGameMessage(null);
+      setNetworkBannerMessage(null);
+      setBotMessage(null);
+      clearSelections();
+    } finally {
+      setIsStartingBot(false);
+    }
+  }, [botName, botSeat, clearSelections, initialState, initialTimeControl]);
+
   useEffect(() => {
-    if (screenMode !== "game" || !session || gameOver) {
+    if (screenMode !== "game" || matchMode !== "online" || !session || gameOver) {
       return;
     }
 
@@ -433,22 +497,22 @@ export function App() {
         window.clearTimeout(timerId);
       }
     };
-  }, [screenMode, session, gameOver, syncSnapshot, isOffline]);
+  }, [screenMode, matchMode, session, gameOver, syncSnapshot, isOffline]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (matchMode !== "online" || typeof window === "undefined") {
       return;
     }
 
     const handleOffline = () => {
       setIsOffline(true);
-      setNetworkBannerMessage("ƒIƒtƒ‰ƒCƒ“‚Å‚·Bƒlƒbƒgƒ[ƒN•œ‹A‚ğ‘Ò‹@‚µ‚Ä‚¢‚Ü‚·B");
+      setNetworkBannerMessage("ã‚ªãƒ•ãƒ©ã‚¤ãƒ³ã§ã™ã€‚ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯å¾©å¸°ã‚’å¾…æ©Ÿã—ã¦ã„ã¾ã™ã€‚");
     };
 
     const handleOnline = () => {
       setIsOffline(false);
       pollingFailureCountRef.current = 0;
-      setNetworkBannerMessage("ƒlƒbƒgƒ[ƒN‚ÉÄÚ‘±‚µ‚Ü‚µ‚½B“¯Šú‚ğÄs‚µ‚Ü‚·B");
+      setNetworkBannerMessage("ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯ã«å†æ¥ç¶šã—ã¾ã—ãŸã€‚åŒæœŸã‚’å†è©¦è¡Œã—ã¾ã™ã€‚");
 
       if (screenMode === "game" && session && !gameOver) {
         void syncSnapshot(session.gameId, { showDialog: false, suppressError: true }).then((synced) => {
@@ -467,7 +531,7 @@ export function App() {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
     };
-  }, [screenMode, session, gameOver, syncSnapshot]);
+  }, [matchMode, screenMode, session, gameOver, syncSnapshot]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
@@ -521,6 +585,67 @@ export function App() {
     [moveHistory, state],
   );
 
+  const playPieceSound = useCallback(() => {
+    if (!pieceSoundRef.current) {
+      return;
+    }
+    pieceSoundRef.current.currentTime = 0;
+    void pieceSoundRef.current.play().catch(() => {});
+  }, []);
+
+  const resolveBotMatchOutcome = useCallback((nextState: GameState): boolean => {
+    const hasPlayableMove = generateLegalMoves(nextState).some((candidate) => applyMove(nextState, candidate).ok);
+    if (hasPlayableMove) {
+      return false;
+    }
+
+    if (isCheckmate(nextState)) {
+      const nextWinner = oppositeColor(nextState.turn);
+      setWinner(nextWinner);
+      setResultText(`${winnerLabel(nextWinner)}\u306e\u52dd\u3061\uff08\u8a70\u307f\uff09`);
+    } else {
+      setWinner(null);
+      setResultText("\u5f15\u304d\u5206\u3051\uff08\u5408\u6cd5\u624b\u306a\u3057\uff09");
+    }
+
+    setGameOver(true);
+    setShowRestartDialog(true);
+    return true;
+  }, []);
+
+  const submitMoveByBot = useCallback(
+    (move: Move) => {
+      if (screenMode !== "game" || matchMode !== "bot" || !canOperateNow) {
+        return;
+      }
+
+      const applied = applyMove(state, move);
+      if (!applied.ok) {
+        setGameMessage("\u4e0d\u6b63\u306a\u7740\u624b\u3067\u3059\u3002\u5165\u529b\u5185\u5bb9\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002");
+        return;
+      }
+
+      appendMoveHistory(move);
+      playPieceSound();
+      setState(applied.value);
+      setGameVersion((current) => {
+        const next = current + 1;
+        latestVersionRef.current = next;
+        return next;
+      });
+      setGameMessage(null);
+
+      const ended = resolveBotMatchOutcome(applied.value);
+      if (!ended) {
+        setGameOver(false);
+        setShowRestartDialog(false);
+        setWinner(null);
+        setResultText(null);
+      }
+    },
+    [screenMode, matchMode, canOperateNow, state, appendMoveHistory, playPieceSound, resolveBotMatchOutcome],
+  );
+
   const submitMoveByApi = useCallback(
     async (move: Move) => {
       if (!session || !canOperateNow) {
@@ -538,10 +663,7 @@ export function App() {
         });
 
         appendMoveHistory(move);
-        if (pieceSoundRef.current) {
-          pieceSoundRef.current.currentTime = 0;
-          void pieceSoundRef.current.play().catch(() => {});
-        }
+        playPieceSound();
         applySnapshot(updated, { showDialog: true });
         setNetworkBannerMessage(null);
       } catch (error) {
@@ -554,7 +676,18 @@ export function App() {
         setIsSubmittingMove(false);
       }
     },
-    [session, canOperateNow, gameVersion, appendMoveHistory, applySnapshot, syncSnapshot, toGameErrorMessage],
+    [session, canOperateNow, gameVersion, appendMoveHistory, playPieceSound, applySnapshot, syncSnapshot, toGameErrorMessage],
+  );
+
+  const submitMoveByMode = useCallback(
+    (move: Move) => {
+      if (matchMode === "online") {
+        void submitMoveByApi(move);
+        return;
+      }
+      submitMoveByBot(move);
+    },
+    [matchMode, submitMoveByApi, submitMoveByBot],
   );
 
   const onSquareClick = useCallback(
@@ -564,7 +697,7 @@ export function App() {
       }
 
       if (selectedDrop) {
-        void submitMoveByApi({ drop: selectedDrop, to: position });
+        submitMoveByMode({ drop: selectedDrop, to: position });
         clearSelections();
         return;
       }
@@ -597,7 +730,7 @@ export function App() {
         return;
       }
 
-      void submitMoveByApi(move);
+      submitMoveByMode(move);
       setSelected(null);
     },
     [
@@ -606,7 +739,7 @@ export function App() {
       clearSelections,
       state,
       selected,
-      submitMoveByApi,
+      submitMoveByMode,
     ],
   );
 
@@ -616,39 +749,138 @@ export function App() {
         return;
       }
 
-      void submitMoveByApi({ ...pendingPromotion.move, promote });
+      submitMoveByMode({ ...pendingPromotion.move, promote });
       clearSelections();
     },
-    [pendingPromotion, submitMoveByApi, clearSelections],
+    [pendingPromotion, submitMoveByMode, clearSelections],
   );
+
+  useEffect(() => {
+    if (
+      screenMode !== "game"
+      || matchMode !== "bot"
+      || gameOver
+      || isPaused
+      || pendingPromotion !== null
+      || isSubmittingMove
+      || isSubmittingResign
+      || isSyncingSnapshot
+      || !isBotTurn(botSeat, state.turn)
+    ) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      let selectedMove = chooseRandomMove(state);
+      if (selectedMove) {
+        const result = applyMove(state, selectedMove);
+        if (!result.ok) {
+          selectedMove = generateLegalMoves(state).find((candidate) => applyMove(state, candidate).ok) ?? null;
+        }
+      }
+
+      if (!selectedMove) {
+        resolveBotMatchOutcome(state);
+        return;
+      }
+
+      const applied = applyMove(state, selectedMove);
+      if (!applied.ok) {
+        setGameMessage("\u30dc\u30c3\u30c8\u306e\u7740\u624b\u751f\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002");
+        return;
+      }
+
+      appendMoveHistory(selectedMove);
+      playPieceSound();
+      setState(applied.value);
+      setGameVersion((current) => {
+        const next = current + 1;
+        latestVersionRef.current = next;
+        return next;
+      });
+      setGameMessage(null);
+
+      const ended = resolveBotMatchOutcome(applied.value);
+      if (!ended) {
+        setGameOver(false);
+        setShowRestartDialog(false);
+        setWinner(null);
+        setResultText(null);
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [
+    screenMode,
+    matchMode,
+    gameOver,
+    isPaused,
+    pendingPromotion,
+    isSubmittingMove,
+    isSubmittingResign,
+    isSyncingSnapshot,
+    botSeat,
+    state,
+    appendMoveHistory,
+    playPieceSound,
+    resolveBotMatchOutcome,
+  ]);
 
   const returnToSetup = useCallback(() => {
     setScreenMode("setup");
+    setSetupMode("online");
+    setMatchMode("online");
     setShowRestartDialog(false);
     setIsPaused(false);
     setGameMessage(null);
     setNetworkBannerMessage(null);
+    setBotMessage(null);
+    setIsStartingBot(false);
     clearStoredSession();
     setSession(null);
     setMoveHistory([]);
+    setWinner(null);
+    setResultText(null);
+    setGameOver(false);
+    setState(initialState);
+    setClockState(createClockState(initialTimeControl));
+    setGameVersion(1);
+    latestVersionRef.current = 1;
     clearSelections();
-  }, [clearSelections]);
+  }, [clearSelections, initialState, initialTimeControl]);
 
   const resign = useCallback(async () => {
-    if (screenMode !== "game" || gameOver || isPaused || !session || isSubmittingResign || isSyncingSnapshot) {
+    if (screenMode !== "game" || gameOver || isPaused || isSubmittingResign || isSyncingSnapshot) {
       return;
     }
 
     setIsSubmittingResign(true);
     setGameMessage(null);
     try {
+      const moveNumber = moveHistory.length + 1;
+
+      if (matchMode === "bot") {
+        const outcome = getBotResignOutcome(botSeat);
+        setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(botSeat)}æŠ•äº†`, to: null }]);
+        setWinner(outcome.winner);
+        setResultText(outcome.resultText);
+        setGameOver(true);
+        setShowRestartDialog(true);
+        return;
+      }
+
+      if (!session) {
+        return;
+      }
+
       const updated = await resignGame({
         gameId: session.gameId,
         sessionToken: session.sessionToken,
       });
 
-      const moveNumber = moveHistory.length + 1;
-      setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(state.turn)}“Š—¹`, to: null }]);
+      setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(state.turn)}æŠ•äº†`, to: null }]);
       applySnapshot(updated, { showDialog: true });
       setNetworkBannerMessage(null);
     } catch (error) {
@@ -660,10 +892,10 @@ export function App() {
     } finally {
       setIsSubmittingResign(false);
     }
-  }, [screenMode, gameOver, isPaused, session, isSubmittingResign, isSyncingSnapshot, moveHistory.length, state.turn, applySnapshot, syncSnapshot, toGameErrorMessage]);
+  }, [screenMode, gameOver, isPaused, isSubmittingResign, isSyncingSnapshot, moveHistory.length, matchMode, botSeat, session, state.turn, applySnapshot, syncSnapshot, toGameErrorMessage]);
 
   const retrySync = useCallback(async () => {
-    if (!session) {
+    if (matchMode !== "online" || !session) {
       return;
     }
 
@@ -673,29 +905,38 @@ export function App() {
       setNetworkBannerMessage(null);
       setGameMessage(null);
     }
-  }, [session, syncSnapshot]);
+  }, [matchMode, session, syncSnapshot]);
 
   if (screenMode === "setup") {
     return (
       <SetupScreen
+        setupMode={setupMode}
         createMainMinutes={createMainMinutes}
         createByoSeconds={createByoSeconds}
         joinGameId={joinGameId}
         joinToken={joinToken}
         joinName={joinName}
         joinSeat={joinSeat}
+        botName={botName}
+        botSeat={botSeat}
         createErrors={createErrors}
         joinErrors={joinErrors}
         createMessage={createMessage}
         joinMessage={joinMessage}
+        botMessage={botMessage}
         isCreating={isCreating}
         isJoining={isJoining || isRestoringSession}
+        isStartingBot={isStartingBot}
+        onSetupModeChange={onSetupModeChange}
         onCreateMainMinutesChange={setCreateMainMinutes}
         onCreateByoSecondsChange={setCreateByoSeconds}
         onJoinGameIdChange={setJoinGameId}
         onJoinTokenChange={setJoinToken}
         onJoinNameChange={setJoinName}
         onJoinSeatChange={setJoinSeat}
+        onBotNameChange={setBotName}
+        onBotSeatChange={setBotSeat}
+        onBotStart={onStartBotGame}
         onCreateSubmit={onCreateGame}
         onJoinSubmit={onJoinGame}
       />
@@ -704,7 +945,7 @@ export function App() {
 
   const turnLockMessage = getTurnLockMessage({
     screenMode,
-    sessionSeat: session?.seat ?? null,
+    sessionSeat: playerSeat,
     turn: state.turn,
     gameOver,
     isPaused,
@@ -713,20 +954,22 @@ export function App() {
   const captionText = gameMessage
     ? gameMessage
     : gameOver
-      ? `Œ‹‰Ê: ${resultText ?? "I‹Ç"}`
+      ? `çµæœ: ${resultText ?? "çµ‚å±€"}`
       : isPaused
-        ? "ˆê’â~’†"
-        : `è”Ô: ${winnerLabel(state.turn)}`;
+        ? "ä¸€æ™‚åœæ­¢ä¸­"
+        : `æ‰‹ç•ª: ${winnerLabel(state.turn)}`;
 
   return (
     <main className="app">
       <h1>Shogi Game</h1>
       {session ? (
         <p className="session-summary">
-          gameId: {session.gameId} / seat: {session.seat} / name: {session.displayName} / version: {gameVersion}
+          {matchMode === "online"
+            ? `gameId: ${session.gameId} / seat: ${session.seat} / name: ${session.displayName} / version: ${gameVersion}`
+            : `mode: bot / seat: ${session.seat} / name: ${session.displayName} / version: ${gameVersion}`}
         </p>
       ) : null}
-      {networkBannerMessage ? (
+      {matchMode === "online" && networkBannerMessage ? (
         <section className={`network-banner ${isOffline ? "is-offline" : ""}`.trim()} role="status" aria-live="polite">
           <span>{networkBannerMessage}</span>
           <button
@@ -735,9 +978,9 @@ export function App() {
             onClick={() => {
               void retrySync();
             }}
-            disabled={!session || isSyncingSnapshot}
+            disabled={matchMode !== "online" || !session || isSyncingSnapshot}
           >
-            Äs
+            å†è©¦è¡Œ
           </button>
         </section>
       ) : null}
@@ -748,20 +991,22 @@ export function App() {
           onClick={() => setIsPaused((current) => !current)}
           disabled={gameOver || isSubmittingMove || isSyncingSnapshot || isSubmittingResign}
         >
-          {isPaused ? "ÄŠJ" : "ˆê’â~"}
+          {isPaused ? "å†é–‹" : "ä¸€æ™‚åœæ­¢"}
         </button>
-        <button
-          type="button"
-          className="setup-button"
-          onClick={() => {
-            void retrySync();
-          }}
-          disabled={!session || isSyncingSnapshot}
-        >
-          Äæ“¾
-        </button>
+        {matchMode === "online" ? (
+          <button
+            type="button"
+            className="setup-button"
+            onClick={() => {
+              void retrySync();
+            }}
+            disabled={!session || isSyncingSnapshot}
+          >
+            å†å–å¾—
+          </button>
+        ) : null}
         <button type="button" className="setup-button" onClick={returnToSetup}>
-          İ’è‰æ–Ê‚Ö–ß‚é
+          è¨­å®šç”»é¢ã¸æˆ»ã‚‹
         </button>
       </section>
       {turnLockMessage && !gameMessage ? <p className="turn-lock-message">{turnLockMessage}</p> : null}
@@ -770,16 +1015,16 @@ export function App() {
           <Hand
             hands={state.hands}
             color="white"
-            active={canOperateNow && session?.seat === "white"}
+            active={canOperateNow && playerSeat === "white"}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
           <div className="clock-panel">
-            <p className="clock-title">‚¿ŠÔ</p>
+            <p className="clock-title">æŒã¡æ™‚é–“</p>
             <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
           </div>
           <section className="history-panel" aria-label="move history">
-            <h2>Šû•ˆ</h2>
+            <h2>æ£‹è­œ</h2>
             <ol className="history-list">
               {moveHistory.map((record) => (
                 <li key={record.id}>{record.text}</li>
@@ -799,13 +1044,13 @@ export function App() {
 
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
-            <p className="clock-title">‚¿ŠÔ</p>
+            <p className="clock-title">æŒã¡æ™‚é–“</p>
             <p className="clock-main">{formatClockText(clockState.main.black, clockState.byo.black)}</p>
           </div>
           <Hand
             hands={state.hands}
             color="black"
-            active={canOperateNow && session?.seat === "black"}
+            active={canOperateNow && playerSeat === "black"}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
@@ -821,9 +1066,9 @@ export function App() {
             void resign();
           }}
         >
-          {isSubmittingResign ? "“Š—¹’†..." : "“Š—¹"}
+          {isSubmittingResign ? "æŠ•äº†ä¸­..." : "æŠ•äº†"}
         </button>
-        {gameOver && !showRestartDialog && session ? (
+        {matchMode === "online" && gameOver && !showRestartDialog && session ? (
           <button
             type="button"
             className="restart-button"
@@ -831,7 +1076,7 @@ export function App() {
               void retrySync();
             }}
           >
-            ‹Ç–ÊÄæ“¾
+            å±€é¢å†å–å¾—
           </button>
         ) : null}
       </div>
@@ -846,3 +1091,5 @@ export function App() {
     </main>
   );
 }
+
+
