@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import { hashToken } from "./auth";
 import { verifyManagedAuthToken } from "./managedAuth";
-import type { InMemoryStore } from "./store";
+import type { GameStore } from "./store";
 import type { Player } from "./types";
 
 function readBearerToken(req: IncomingMessage): string | null {
@@ -17,19 +17,19 @@ function readBearerToken(req: IncomingMessage): string | null {
   return token;
 }
 
-export function requireSessionAuth(req: IncomingMessage, store: InMemoryStore, gameId: string): Player {
+export async function requireSessionAuth(req: IncomingMessage, store: GameStore, gameId: string): Promise<Player> {
   const token = readBearerToken(req);
   if (!token) {
     throw new Error("UNAUTHORIZED");
   }
 
-  const sessionPlayer = store.findPlayerBySessionToken(gameId, hashToken(token));
+  const sessionPlayer = await store.findPlayerBySessionToken(gameId, hashToken(token));
   if (sessionPlayer) {
     return sessionPlayer;
   }
 
   const managed = verifyManagedAuthToken(token);
-  const player = managed ? store.findPlayerByGuestId(gameId, managed.subject) : null;
+  const player = managed ? await store.findPlayerByGuestId(gameId, managed.subject) : null;
   if (!player) {
     throw new Error("UNAUTHORIZED");
   }

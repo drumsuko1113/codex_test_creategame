@@ -79,4 +79,62 @@ describe("online match backend flow", () => {
     expect(resigned.winner).toBe("white");
     expect(resigned.resultType).toBe("resign");
   });
+
+  test("returns 409 with VERSION_CONFLICT on stale expectedVersion", async () => {
+    const createRes = await fetch(`${baseUrl}/api/games`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mainMinutes: 5, byoSeconds: 30 }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { gameId: string; joinToken: string };
+
+    const blackJoinRes = await fetch(`${baseUrl}/api/games/${created.gameId}/join`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "black", seat: "black", joinToken: created.joinToken }),
+    });
+    expect(blackJoinRes.status).toBe(200);
+    const blackJoin = (await blackJoinRes.json()) as { sessionToken: string };
+
+    const whiteJoinRes = await fetch(`${baseUrl}/api/games/${created.gameId}/join`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "white", seat: "white", joinToken: created.joinToken }),
+    });
+    expect(whiteJoinRes.status).toBe(200);
+
+    const snapshotRes = await fetch(`${baseUrl}/api/games/${created.gameId}`);
+    expect(snapshotRes.status).toBe(200);
+    const snapshot = (await snapshotRes.json()) as { version: number };
+
+    const moveRes = await fetch(`${baseUrl}/api/games/${created.gameId}/moves`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${blackJoin.sessionToken}`,
+      },
+      body: JSON.stringify({
+        expectedVersion: snapshot.version,
+        move: { from: { x: 0, y: 6 }, to: { x: 0, y: 5 } },
+      }),
+    });
+    expect(moveRes.status).toBe(200);
+
+    const staleMoveRes = await fetch(`${baseUrl}/api/games/${created.gameId}/moves`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${blackJoin.sessionToken}`,
+      },
+      body: JSON.stringify({
+        expectedVersion: snapshot.version,
+        move: { from: { x: 0, y: 5 }, to: { x: 0, y: 4 } },
+      }),
+    });
+
+    expect(staleMoveRes.status).toBe(409);
+    const payload = (await staleMoveRes.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("VERSION_CONFLICT");
+  });
 });

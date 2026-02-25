@@ -7,26 +7,27 @@ import { RateLimiter } from "./rateLimiter";
 import { RealtimeHub } from "./realtime";
 import { respond, respondError } from "./respond";
 import { ROUTE_JOIN, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
-import { InMemoryStore } from "./store";
+import { createDefaultStore, type GameStore } from "./store";
 import type { Player } from "./types";
 import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput } from "./validators";
 
-const store = new InMemoryStore();
-const rateLimiter = new RateLimiter(60_000, 120);
-const realtime = new RealtimeHub();
+type AppOptions = {
+  store?: GameStore;
+};
 
 function getErrorCode(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-function authenticateActor(
+async function authenticateActor(
   req: IncomingMessage,
   res: ServerResponse,
+  store: GameStore,
   gameId: string,
   ctx: ReturnType<typeof makeRequestContext>,
-): Player | null {
+): Promise<Player | null> {
   try {
-    return requireSessionAuth(req, store, gameId);
+    return await requireSessionAuth(req, store, gameId);
   } catch (error) {
     const code = getErrorCode(error, "UNAUTHORIZED");
     if (code === "UNAUTHORIZED") {
@@ -37,7 +38,13 @@ function authenticateActor(
   }
 }
 
-async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handleRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: GameStore,
+  rateLimiter: RateLimiter,
+  realtime: RealtimeHub,
+): Promise<void> {
   const ctx = makeRequestContext(req);
 
   if (ctx.path.startsWith("/api/")) {
@@ -60,7 +67,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       return;
     }
 
-    const created = store.createGame(body);
+    const created = await store.createGame(body);
     respond(res, ctx, 201, created, { gameId: created.gameId, event: "game.created" });
     realtime.broadcast(created.gameId, "game.created", created);
     return;
@@ -76,7 +83,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
 
     try {
-      const joined = store.joinGame(gameId, body);
+      const joined = await store.joinGame(gameId, body);
       respond(res, ctx, 200, joined, { gameId, guestId: joined.guestId, event: "game.joined" });
       realtime.broadcast(gameId, "player.joined", joined);
       return;
@@ -101,7 +108,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const recordsMatch = req.url?.match(ROUTE_RECORDS);
   if (req.method === "GET" && recordsMatch) {
     const gameId = recordsMatch[1];
-    const game = store.getGame(gameId);
+    const game = await store.getGame(gameId);
     if (!game) {
       respondError(res, ctx, 404, "GAME_NOT_FOUND", "Game was not found", { gameId });
       return;
@@ -116,7 +123,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         status: game.status,
         winner: game.winner,
         resultType: game.resultType,
-        moves: store.getMoves(gameId),
+        moves: await store.getMoves(gameId),
       },
       { gameId, event: "game.records" },
     );
@@ -126,7 +133,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const getGameMatch = req.url?.match(ROUTE_SNAPSHOT);
   if (req.method === "GET" && getGameMatch) {
     const gameId = getGameMatch[1];
-    const game = store.getGame(gameId);
+    const game = await store.getGame(gameId);
     if (!game) {
       respondError(res, ctx, 404, "GAME_NOT_FOUND", "Game was not found", { gameId });
       return;
@@ -138,7 +145,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const moveMatch = req.url?.match(ROUTE_MOVE);
   if (req.method === "POST" && moveMatch) {
     const gameId = moveMatch[1];
-    const actor = authenticateActor(req, res, gameId, ctx);
+    const actor = await authenticateActor(req, res, store, gameId, ctx);
     if (!actor) {
       return;
     }
@@ -150,7 +157,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     }
 
     try {
-      const updated = store.submitMove(gameId, actor, body.move, body.expectedVersion);
+      const updated = await store.submitMove(gameId, actor, body.move, body.expectedVersion);
       respond(res, ctx, 200, updated, { gameId, guestId: actor.guestId, event: "game.moved" });
       realtime.broadcast(gameId, "game.updated", updated);
       return;
@@ -175,13 +182,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const resignMatch = req.url?.match(ROUTE_RESIGN);
   if (req.method === "POST" && resignMatch) {
     const gameId = resignMatch[1];
-    const actor = authenticateActor(req, res, gameId, ctx);
+    const actor = await authenticateActor(req, res, store, gameId, ctx);
     if (!actor) {
       return;
     }
 
     try {
-      const updated = store.resign(gameId, actor);
+      const updated = await store.resign(gameId, actor);
       respond(res, ctx, 200, updated, { gameId, guestId: actor.guestId, event: "game.resigned" });
       realtime.broadcast(gameId, "game.finished", updated);
       return;
@@ -202,9 +209,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   respondError(res, ctx, 404, "NOT_FOUND", "Route not found");
 }
 
-export function createApp() {
+export function createApp(options: AppOptions = {}) {
+  const store = options.store ?? createDefaultStore();
+  const rateLimiter = new RateLimiter(60_000, 120);
+  const realtime = new RealtimeHub();
+
   const server = createServer((req, res) => {
-    handleRequest(req, res).catch((error: unknown) => {
+    handleRequest(req, res, store, rateLimiter, realtime).catch((error: unknown) => {
       const ctx = makeRequestContext(req);
       const message = getErrorCode(error, "Internal Server Error");
       if (message === "INVALID_JSON") {
@@ -222,6 +233,22 @@ export function createApp() {
       respondError(res, ctx, 500, "INTERNAL_ERROR", message);
     });
   });
+
   realtime.attach(server);
+  server.on("close", () => {
+    if (!store.close) {
+      return;
+    }
+    store.close().catch((error: unknown) => {
+      log({
+        level: "error",
+        event: "store.close.error",
+        requestId: "server-close",
+        method: "SYSTEM",
+        path: "/",
+        message: getErrorCode(error, "STORE_CLOSE_ERROR"),
+      });
+    });
+  });
   return server;
 }
