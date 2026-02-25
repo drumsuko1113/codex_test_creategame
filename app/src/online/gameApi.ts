@@ -57,6 +57,18 @@ export type ResignGameRequest = {
   sessionToken: string;
 };
 
+export type GetSessionPlayerRequest = {
+  gameId: string;
+  sessionToken: string;
+};
+
+export type SessionPlayerResponse = {
+  gameId: string;
+  guestId: string;
+  seat: Seat;
+  displayName: string;
+};
+
 type ErrorPayload = {
   error?: {
     code?: string;
@@ -140,6 +152,14 @@ export async function joinGame(input: JoinGameRequest, baseUrl?: string): Promis
 
 export async function getGameSnapshot(gameId: string, baseUrl?: string): Promise<GameSnapshot> {
   return requestJson<GameSnapshot>(buildApiUrl(`/api/games/${gameId}`, baseUrl));
+}
+
+export async function getSessionPlayer(input: GetSessionPlayerRequest, baseUrl?: string): Promise<SessionPlayerResponse> {
+  return requestJson<SessionPlayerResponse>(buildApiUrl(`/api/games/${input.gameId}/me`, baseUrl), {
+    headers: {
+      authorization: `Bearer ${input.sessionToken}`,
+    },
+  });
 }
 
 export async function submitMove(input: SubmitMoveRequest, baseUrl?: string): Promise<GameSnapshot> {

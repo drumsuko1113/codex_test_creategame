@@ -13,6 +13,7 @@ import {
   ApiClientError,
   createGame,
   getGameSnapshot,
+  getSessionPlayer,
   joinGame,
   resignGame,
   submitMove,
@@ -21,6 +22,7 @@ import {
 import { buildResultText, toClockState } from "./online/gameSnapshot";
 import { formatLobbyError, validateCreateGameForm, validateJoinGameForm } from "./online/lobbyValidation";
 import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
+import { clearStoredSession, loadStoredSession, saveStoredSession } from "./online/sessionPersistence";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
 import { Hand } from "./ui/Hand";
@@ -63,6 +65,7 @@ export function App() {
   const [joinMessage, setJoinMessage] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
   const [timeControl, setTimeControl] = useState<TimeControl>(initialTimeControl);
 
@@ -202,6 +205,83 @@ export function App() {
     [applySnapshot, toGameErrorMessage],
   );
 
+  useEffect(() => {
+    let disposed = false;
+
+    const restoreSession = async () => {
+      const stored = loadStoredSession();
+      if (!stored) {
+        return;
+      }
+
+      setIsRestoringSession(true);
+      setJoinGameId(stored.gameId);
+      setJoinName(stored.displayName);
+      setJoinSeat(stored.seat);
+      setJoinMessage("前回対局を復元中です...");
+
+      try {
+        const player = await getSessionPlayer({
+          gameId: stored.gameId,
+          sessionToken: stored.sessionToken,
+        });
+        const restoredSession: SessionState = {
+          gameId: stored.gameId,
+          seat: player.seat,
+          displayName: player.displayName,
+          sessionToken: stored.sessionToken,
+        };
+
+        if (disposed) {
+          return;
+        }
+
+        setSession(restoredSession);
+        const restored = await syncSnapshot(restoredSession.gameId, {
+          showDialog: false,
+          suppressError: true,
+        });
+
+        if (disposed) {
+          return;
+        }
+
+        if (!restored) {
+          throw new Error("RESTORE_FAILED");
+        }
+
+        saveStoredSession(restoredSession);
+        setJoinMessage(null);
+        setGameMessage(null);
+        setScreenMode("game");
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+
+        clearStoredSession();
+        setSession(null);
+        setScreenMode("setup");
+
+        if (error instanceof ApiClientError && (error.code === "UNAUTHORIZED" || error.code === "GAME_NOT_FOUND")) {
+          setJoinMessage("保存されたセッションは無効です。再参加してください。");
+        } else {
+          setJoinMessage("前回対局の復元に失敗しました。再参加してください。");
+        }
+      } finally {
+        if (!disposed) {
+          setIsRestoringSession(false);
+        }
+      }
+    };
+
+    void restoreSession();
+
+    return () => {
+      disposed = true;
+    };
+  }, [syncSnapshot]);
+
   const onCreateGame = useCallback(async () => {
     const validated = validateCreateGameForm({ mainMinutes: createMainMinutes, byoSeconds: createByoSeconds });
     if (!validated.ok) {
@@ -255,6 +335,7 @@ export function App() {
         sessionToken: joined.sessionToken,
       };
       setSession(nextSession);
+      saveStoredSession(nextSession);
       await syncSnapshot(nextSession.gameId, { showDialog: false });
       setGameMessage(null);
       setScreenMode("game");
@@ -477,6 +558,7 @@ export function App() {
     setShowRestartDialog(false);
     setIsPaused(false);
     setGameMessage(null);
+    clearStoredSession();
     setSession(null);
     setMoveHistory([]);
     clearSelections();
@@ -522,7 +604,7 @@ export function App() {
         createMessage={createMessage}
         joinMessage={joinMessage}
         isCreating={isCreating}
-        isJoining={isJoining}
+        isJoining={isJoining || isRestoringSession}
         onCreateMainMinutesChange={setCreateMainMinutes}
         onCreateByoSecondsChange={setCreateByoSeconds}
         onJoinGameIdChange={setJoinGameId}
