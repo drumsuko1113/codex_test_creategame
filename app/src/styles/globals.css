@@ -33,6 +33,24 @@ body {
   font-size: 18px;
 }
 
+.lobby-columns {
+  display: grid;
+  gap: 12px;
+}
+
+.lobby-card {
+  border: 1px solid #6e5838;
+  background: #fff3d8;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.lobby-card h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
 .setup-row {
   display: grid;
   gap: 6px;
@@ -88,6 +106,27 @@ body {
   padding: 10px 14px;
   cursor: pointer;
   font-weight: 700;
+}
+
+.form-error-list {
+  margin: 0;
+  padding-left: 20px;
+  color: #8b1a1a;
+  font-size: 13px;
+}
+
+.form-message {
+  margin: 0;
+  font-size: 13px;
+  color: #1f4b23;
+}
+
+.session-summary {
+  margin: 6px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid #6e5838;
+  background: #fff3d8;
+  font-size: 13px;
 }
 
 .game-actions {
@@ -391,6 +430,10 @@ body {
 }
 
 @media (max-width: 980px) {
+  .lobby-columns {
+    grid-template-columns: 1fr;
+  }
+
   .setup-input-grid {
     grid-template-columns: 1fr;
   }
@@ -420,5 +463,12 @@ body {
 
   .hand-pieces {
     grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 860px) {
+  .lobby-columns {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
   }
 }

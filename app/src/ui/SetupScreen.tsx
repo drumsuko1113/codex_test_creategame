@@ -1,80 +1,161 @@
 import type { Color } from "../../../core/src/types";
 
 type SetupScreenProps = {
-  startingTurn: Color;
-  mainMinutes: number;
-  byoSeconds: number;
-  onStartingTurnChange: (turn: Color) => void;
-  onMainMinutesChange: (value: string) => void;
-  onByoSecondsChange: (value: string) => void;
-  onStart: () => void;
+  createMainMinutes: string;
+  createByoSeconds: string;
+  joinGameId: string;
+  joinToken: string;
+  joinName: string;
+  joinSeat: Color;
+  createErrors: string[];
+  joinErrors: string[];
+  createMessage: string | null;
+  joinMessage: string | null;
+  isCreating: boolean;
+  isJoining: boolean;
+  onCreateMainMinutesChange: (value: string) => void;
+  onCreateByoSecondsChange: (value: string) => void;
+  onJoinGameIdChange: (value: string) => void;
+  onJoinTokenChange: (value: string) => void;
+  onJoinNameChange: (value: string) => void;
+  onJoinSeatChange: (seat: Color) => void;
+  onCreateSubmit: () => void;
+  onJoinSubmit: () => void;
 };
 
 export function SetupScreen({
-  startingTurn,
-  mainMinutes,
-  byoSeconds,
-  onStartingTurnChange,
-  onMainMinutesChange,
-  onByoSecondsChange,
-  onStart,
+  createMainMinutes,
+  createByoSeconds,
+  joinGameId,
+  joinToken,
+  joinName,
+  joinSeat,
+  createErrors,
+  joinErrors,
+  createMessage,
+  joinMessage,
+  isCreating,
+  isJoining,
+  onCreateMainMinutesChange,
+  onCreateByoSecondsChange,
+  onJoinGameIdChange,
+  onJoinTokenChange,
+  onJoinNameChange,
+  onJoinSeatChange,
+  onCreateSubmit,
+  onJoinSubmit,
 }: SetupScreenProps) {
   return (
     <main className="app">
       <h1>Shogi Game</h1>
-      <section className="start-screen" aria-label="match setup">
-        <h2>å¯¾å±€è¨­å®š</h2>
-        <div className="setup-row">
-          <span className="setup-label">é–‹å§‹æ‰‹ç•ª</span>
-          <div className="setup-options">
-            <button
-              type="button"
-              className={`setup-button ${startingTurn === "black" ? "is-selected" : ""}`.trim()}
-              onClick={() => onStartingTurnChange("black")}
-            >
-              å…ˆæ‰‹
+      <section className="start-screen" aria-label="online match setup">
+        <h2>ƒIƒ“ƒ‰ƒCƒ“‘Î‹Ç‚Ìì¬ / Q‰Á</h2>
+        <div className="lobby-columns">
+          <section className="lobby-card" aria-label="create game form">
+            <h3>‘Î‹Ç‚ğì¬</h3>
+            <div className="setup-input-grid">
+              <label className="setup-input-label" htmlFor="create-main-minutes-input">
+                ‚¿ŠÔ (•ª)
+              </label>
+              <input
+                id="create-main-minutes-input"
+                className="setup-number-input"
+                type="number"
+                min={1}
+                step={1}
+                value={createMainMinutes}
+                onChange={(event) => onCreateMainMinutesChange(event.target.value)}
+              />
+              <label className="setup-input-label" htmlFor="create-byo-seconds-input">
+                •b“Ç‚İ (•b)
+              </label>
+              <input
+                id="create-byo-seconds-input"
+                className="setup-number-input"
+                type="number"
+                min={0}
+                step={10}
+                value={createByoSeconds}
+                onChange={(event) => onCreateByoSecondsChange(event.target.value)}
+              />
+            </div>
+            {createErrors.length > 0 ? (
+              <ul className="form-error-list" aria-label="create validation errors">
+                {createErrors.map((error) => (
+                  <li key={error}>{error}</li>
+                ))}
+              </ul>
+            ) : null}
+            {createMessage ? <p className="form-message">{createMessage}</p> : null}
+            <button type="button" className="start-match-button" onClick={onCreateSubmit} disabled={isCreating}>
+              {isCreating ? "ì¬’†..." : "‘Î‹Ç‚ğì¬"}
             </button>
-            <button
-              type="button"
-              className={`setup-button ${startingTurn === "white" ? "is-selected" : ""}`.trim()}
-              onClick={() => onStartingTurnChange("white")}
-            >
-              å¾Œæ‰‹
+          </section>
+
+          <section className="lobby-card" aria-label="join game form">
+            <h3>‘Î‹Ç‚ÉQ‰Á</h3>
+            <div className="setup-input-grid">
+              <label className="setup-input-label" htmlFor="join-game-id-input">
+                gameId
+              </label>
+              <input
+                id="join-game-id-input"
+                className="setup-number-input"
+                type="text"
+                value={joinGameId}
+                onChange={(event) => onJoinGameIdChange(event.target.value)}
+              />
+              <label className="setup-input-label" htmlFor="join-token-input">
+                joinToken
+              </label>
+              <input
+                id="join-token-input"
+                className="setup-number-input"
+                type="text"
+                value={joinToken}
+                onChange={(event) => onJoinTokenChange(event.target.value)}
+              />
+              <label className="setup-input-label" htmlFor="join-name-input">
+                •\¦–¼
+              </label>
+              <input
+                id="join-name-input"
+                className="setup-number-input"
+                type="text"
+                value={joinName}
+                onChange={(event) => onJoinNameChange(event.target.value)}
+              />
+              <span className="setup-input-label">È</span>
+              <div className="setup-options">
+                <button
+                  type="button"
+                  className={`setup-button ${joinSeat === "black" ? "is-selected" : ""}`.trim()}
+                  onClick={() => onJoinSeatChange("black")}
+                >
+                  black
+                </button>
+                <button
+                  type="button"
+                  className={`setup-button ${joinSeat === "white" ? "is-selected" : ""}`.trim()}
+                  onClick={() => onJoinSeatChange("white")}
+                >
+                  white
+                </button>
+              </div>
+            </div>
+            {joinErrors.length > 0 ? (
+              <ul className="form-error-list" aria-label="join validation errors">
+                {joinErrors.map((error) => (
+                  <li key={error}>{error}</li>
+                ))}
+              </ul>
+            ) : null}
+            {joinMessage ? <p className="form-message">{joinMessage}</p> : null}
+            <button type="button" className="start-match-button" onClick={onJoinSubmit} disabled={isJoining}>
+              {isJoining ? "Q‰Á’†..." : "‘Î‹Ç‚ÉQ‰Á"}
             </button>
-          </div>
+          </section>
         </div>
-        <div className="setup-row">
-          <span className="setup-label">æŒã¡æ™‚é–“</span>
-          <div className="setup-input-grid">
-            <label className="setup-input-label" htmlFor="main-minutes-input">
-              æŒã¡æ™‚é–“ï¼ˆåˆ†ï¼‰
-            </label>
-            <input
-              id="main-minutes-input"
-              className="setup-number-input"
-              type="number"
-              min={0}
-              step={1}
-              value={mainMinutes}
-              onChange={(event) => onMainMinutesChange(event.target.value)}
-            />
-            <label className="setup-input-label" htmlFor="byo-seconds-input">
-              ç§’èª­ã¿ï¼ˆç§’ï¼‰
-            </label>
-            <input
-              id="byo-seconds-input"
-              className="setup-number-input"
-              type="number"
-              min={0}
-              step={10}
-              value={byoSeconds}
-              onChange={(event) => onByoSecondsChange(event.target.value)}
-            />
-          </div>
-        </div>
-        <button type="button" className="start-match-button" onClick={onStart}>
-          å¯¾å±€é–‹å§‹
-        </button>
       </section>
     </main>
   );
