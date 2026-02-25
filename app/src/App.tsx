@@ -19,6 +19,7 @@ import {
 } from "./online/gameApi";
 import { buildResultText, toClockState } from "./online/gameSnapshot";
 import { formatLobbyError, validateCreateGameForm, validateJoinGameForm } from "./online/lobbyValidation";
+import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
 import { Hand } from "./ui/Hand";
@@ -81,6 +82,8 @@ export function App() {
   const [isSubmittingMove, setIsSubmittingMove] = useState(false);
   const [isSubmittingResign, setIsSubmittingResign] = useState(false);
   const pieceSoundRef = useRef<HTMLAudioElement | null>(null);
+  const latestVersionRef = useRef(gameVersion);
+  const pollingInFlightRef = useRef(false);
 
   useEffect(() => {
     pieceSoundRef.current = new Audio(PIECE_SOUND_PATH);
@@ -93,6 +96,10 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    latestVersionRef.current = gameVersion;
+  }, [gameVersion]);
+
   const clearSelections = useCallback(() => {
     setSelected(null);
     setSelectedDrop(null);
@@ -104,6 +111,7 @@ export function App() {
       setState(snapshot.state);
       setClockState(toClockState(snapshot));
       setGameVersion(snapshot.version);
+      latestVersionRef.current = snapshot.version;
       setWinner(snapshot.winner);
 
       const nextResultText = buildResultText(snapshot);
@@ -147,15 +155,35 @@ export function App() {
   }, []);
 
   const syncSnapshot = useCallback(
-    async (gameId: string, options: { showDialog?: boolean } = {}) => {
-      setIsSyncingSnapshot(true);
+    async (
+      gameId: string,
+      options: {
+        showDialog?: boolean;
+        suppressError?: boolean;
+        onlyIfVersionAdvanced?: boolean;
+        background?: boolean;
+      } = {},
+    ): Promise<boolean> => {
+      const { showDialog, suppressError = false, onlyIfVersionAdvanced = false, background = false } = options;
+      if (!background) {
+        setIsSyncingSnapshot(true);
+      }
       try {
         const snapshot = await getGameSnapshot(gameId);
-        applySnapshot(snapshot, options);
+        if (onlyIfVersionAdvanced && !shouldApplySnapshot(latestVersionRef.current, snapshot.version)) {
+          return false;
+        }
+        applySnapshot(snapshot, { showDialog });
+        return true;
       } catch (error) {
-        setGameMessage(toGameErrorMessage(error));
+        if (!suppressError) {
+          setGameMessage(toGameErrorMessage(error));
+        }
+        return false;
       } finally {
-        setIsSyncingSnapshot(false);
+        if (!background) {
+          setIsSyncingSnapshot(false);
+        }
       }
     },
     [applySnapshot, toGameErrorMessage],
@@ -227,6 +255,58 @@ export function App() {
       setIsJoining(false);
     }
   }, [joinGameId, joinToken, joinName, joinSeat, syncSnapshot]);
+
+  useEffect(() => {
+    if (screenMode !== "game" || !session || gameOver) {
+      return;
+    }
+
+    let disposed = false;
+    let timerId: number | null = null;
+
+    const scheduleNext = () => {
+      if (disposed) {
+        return;
+      }
+      const intervalMs = getPollingIntervalMs(document.hidden);
+      timerId = window.setTimeout(() => {
+        void pollOnce();
+      }, intervalMs);
+    };
+
+    const pollOnce = async () => {
+      if (disposed) {
+        return;
+      }
+      if (pollingInFlightRef.current) {
+        scheduleNext();
+        return;
+      }
+
+      pollingInFlightRef.current = true;
+      try {
+        await syncSnapshot(session.gameId, {
+          showDialog: false,
+          suppressError: true,
+          onlyIfVersionAdvanced: true,
+          background: true,
+        });
+      } finally {
+        pollingInFlightRef.current = false;
+        scheduleNext();
+      }
+    };
+
+    scheduleNext();
+
+    return () => {
+      disposed = true;
+      pollingInFlightRef.current = false;
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+    };
+  }, [screenMode, session, gameOver, syncSnapshot]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
