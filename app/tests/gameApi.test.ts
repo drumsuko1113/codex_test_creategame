@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ApiClientError, createGame, getGameSnapshot, joinGame, resignGame, submitMove } from "../src/online/gameApi";
+import { ApiClientError, createGame, getGameSnapshot, getSessionPlayer, joinGame, resignGame, submitMove } from "../src/online/gameApi";
 
 const originalFetch = global.fetch;
 
@@ -226,6 +226,47 @@ describe("gameApi", () => {
       "http://127.0.0.1:3000/api/games/game-1/resign",
       expect.objectContaining({
         method: "POST",
+        headers: {
+          authorization: "Bearer session-1",
+        },
+      }),
+    );
+  });
+
+  test("getSessionPlayer sends auth header and returns player payload", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          gameId: "game-1",
+          guestId: "guest-1",
+          seat: "black",
+          displayName: "black-player",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await getSessionPlayer(
+      {
+        gameId: "game-1",
+        sessionToken: "session-1",
+      },
+      "http://127.0.0.1:3000",
+    );
+
+    expect(result).toEqual({
+      gameId: "game-1",
+      guestId: "guest-1",
+      seat: "black",
+      displayName: "black-player",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/api/games/game-1/me",
+      expect.objectContaining({
         headers: {
           authorization: "Bearer session-1",
         },

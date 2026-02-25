@@ -137,4 +137,39 @@ describe("online match backend flow", () => {
     const payload = (await staleMoveRes.json()) as { error?: { code?: string } };
     expect(payload.error?.code).toBe("VERSION_CONFLICT");
   });
+
+  test("returns session player on GET /api/games/{gameId}/me and rejects invalid token", async () => {
+    const createRes = await fetch(`${baseUrl}/api/games`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mainMinutes: 5, byoSeconds: 30 }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { gameId: string; joinToken: string };
+
+    const blackJoinRes = await fetch(`${baseUrl}/api/games/${created.gameId}/join`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "black", seat: "black", joinToken: created.joinToken }),
+    });
+    expect(blackJoinRes.status).toBe(200);
+    const blackJoin = (await blackJoinRes.json()) as { guestId: string; sessionToken: string; seat: string };
+
+    const meRes = await fetch(`${baseUrl}/api/games/${created.gameId}/me`, {
+      headers: { authorization: `Bearer ${blackJoin.sessionToken}` },
+    });
+    expect(meRes.status).toBe(200);
+    const me = (await meRes.json()) as { gameId: string; guestId: string; seat: string; displayName: string };
+    expect(me.gameId).toBe(created.gameId);
+    expect(me.guestId).toBe(blackJoin.guestId);
+    expect(me.seat).toBe(blackJoin.seat);
+    expect(me.displayName).toBe("black");
+
+    const unauthorizedRes = await fetch(`${baseUrl}/api/games/${created.gameId}/me`, {
+      headers: { authorization: "Bearer invalid-token" },
+    });
+    expect(unauthorizedRes.status).toBe(401);
+    const unauthorized = (await unauthorizedRes.json()) as { error?: { code?: string } };
+    expect(unauthorized.error?.code).toBe("UNAUTHORIZED");
+  });
 });

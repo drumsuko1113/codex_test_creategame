@@ -6,7 +6,7 @@ import { requireSessionAuth } from "./middleware";
 import { RateLimiter } from "./rateLimiter";
 import { RealtimeHub } from "./realtime";
 import { respond, respondError } from "./respond";
-import { ROUTE_JOIN, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
+import { ROUTE_JOIN, ROUTE_ME, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
 import { createDefaultStore, type GameStore } from "./store";
 import type { Player } from "./types";
 import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput } from "./validators";
@@ -139,6 +139,29 @@ async function handleRequest(
       return;
     }
     respond(res, ctx, 200, game, { gameId, event: "game.snapshot" });
+    return;
+  }
+
+  const meMatch = req.url?.match(ROUTE_ME);
+  if (req.method === "GET" && meMatch) {
+    const gameId = meMatch[1];
+    const actor = await authenticateActor(req, res, store, gameId, ctx);
+    if (!actor) {
+      return;
+    }
+
+    respond(
+      res,
+      ctx,
+      200,
+      {
+        gameId,
+        guestId: actor.guestId,
+        seat: actor.seat,
+        displayName: actor.displayName,
+      },
+      { gameId, guestId: actor.guestId, event: "game.me" },
+    );
     return;
   }
 
