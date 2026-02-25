@@ -82,8 +82,8 @@ type MoveRow = {
   created_at: string | Date;
 };
 
-type MaxPlyRow = {
-  max_ply: number | string | null;
+type LastPlyRow = {
+  ply: number | string;
 };
 
 export interface GameStore {
@@ -440,7 +440,11 @@ export class InMemoryStore implements GameStore {
     game.updatedAt = toIsoNow();
     game.version += 1;
 
-    const moves = this.movesByGame.get(gameId) ?? [];
+    const moves = this.movesByGame.get(gameId);
+    if (!moves) {
+      throw new Error("GAME_NOT_FOUND");
+    }
+
     moves.push({
       ply: moves.length + 1,
       actorSeat: actor.seat,
@@ -448,7 +452,6 @@ export class InMemoryStore implements GameStore {
       stateAfter: result.value,
       createdAt: toIsoNow(),
     });
-    this.movesByGame.set(gameId, moves);
 
     return game;
   }
@@ -801,13 +804,15 @@ export class PostgresStore implements GameStore {
 
       await this.updateGame(client, game, previousVersion);
 
-      const maxPlyResult = await client.query<MaxPlyRow>(
-        `SELECT COALESCE(MAX(ply), 0) AS max_ply
+      const lastMoveResult = await client.query<LastPlyRow>(
+        `SELECT ply
          FROM moves
-         WHERE game_id = $1`,
+         WHERE game_id = $1
+         ORDER BY ply DESC
+         LIMIT 1`,
         [gameId],
       );
-      const nextPly = toNumber(maxPlyResult.rows[0]?.max_ply) + 1;
+      const nextPly = toNumber(lastMoveResult.rows[0]?.ply) + 1;
 
       await client.query(
         `INSERT INTO moves (

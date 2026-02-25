@@ -76,6 +76,8 @@ type ErrorPayload = {
   };
 };
 
+type ApiHeaders = Record<string, string>;
+
 export class ApiClientError extends Error {
   constructor(
     public readonly status: number,
@@ -96,6 +98,23 @@ function normalizeBaseUrl(baseUrl?: string): string {
 function buildApiUrl(path: string, baseUrl?: string): string {
   const normalized = normalizeBaseUrl(baseUrl);
   return normalized ? `${normalized}${path}` : path;
+}
+
+function requestApiJson<T>(path: string, baseUrl?: string, init?: RequestInit): Promise<T> {
+  return requestJson<T>(buildApiUrl(path, baseUrl), init);
+}
+
+function buildAuthHeaders(sessionToken: string): ApiHeaders {
+  return {
+    authorization: `Bearer ${sessionToken}`,
+  };
+}
+
+function buildJsonHeaders(headers?: ApiHeaders): ApiHeaders {
+  return {
+    "content-type": "application/json",
+    ...(headers ?? {}),
+  };
 }
 
 async function parseJsonSafely(response: Response): Promise<unknown> {
@@ -131,17 +150,17 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export async function createGame(input: CreateGameRequest, baseUrl?: string): Promise<CreateGameResponse> {
-  return requestJson<CreateGameResponse>(buildApiUrl("/api/games", baseUrl), {
+  return requestApiJson<CreateGameResponse>("/api/games", baseUrl, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: buildJsonHeaders(),
     body: JSON.stringify(input),
   });
 }
 
 export async function joinGame(input: JoinGameRequest, baseUrl?: string): Promise<JoinGameResponse> {
-  return requestJson<JoinGameResponse>(buildApiUrl(`/api/games/${input.gameId}/join`, baseUrl), {
+  return requestApiJson<JoinGameResponse>(`/api/games/${input.gameId}/join`, baseUrl, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: buildJsonHeaders(),
     body: JSON.stringify({
       name: input.name,
       seat: input.seat,
@@ -151,24 +170,19 @@ export async function joinGame(input: JoinGameRequest, baseUrl?: string): Promis
 }
 
 export async function getGameSnapshot(gameId: string, baseUrl?: string): Promise<GameSnapshot> {
-  return requestJson<GameSnapshot>(buildApiUrl(`/api/games/${gameId}`, baseUrl));
+  return requestApiJson<GameSnapshot>(`/api/games/${gameId}`, baseUrl);
 }
 
 export async function getSessionPlayer(input: GetSessionPlayerRequest, baseUrl?: string): Promise<SessionPlayerResponse> {
-  return requestJson<SessionPlayerResponse>(buildApiUrl(`/api/games/${input.gameId}/me`, baseUrl), {
-    headers: {
-      authorization: `Bearer ${input.sessionToken}`,
-    },
+  return requestApiJson<SessionPlayerResponse>(`/api/games/${input.gameId}/me`, baseUrl, {
+    headers: buildAuthHeaders(input.sessionToken),
   });
 }
 
 export async function submitMove(input: SubmitMoveRequest, baseUrl?: string): Promise<GameSnapshot> {
-  return requestJson<GameSnapshot>(buildApiUrl(`/api/games/${input.gameId}/moves`, baseUrl), {
+  return requestApiJson<GameSnapshot>(`/api/games/${input.gameId}/moves`, baseUrl, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.sessionToken}`,
-    },
+    headers: buildJsonHeaders(buildAuthHeaders(input.sessionToken)),
     body: JSON.stringify({
       expectedVersion: input.expectedVersion,
       move: input.move,
@@ -177,10 +191,8 @@ export async function submitMove(input: SubmitMoveRequest, baseUrl?: string): Pr
 }
 
 export async function resignGame(input: ResignGameRequest, baseUrl?: string): Promise<GameSnapshot> {
-  return requestJson<GameSnapshot>(buildApiUrl(`/api/games/${input.gameId}/resign`, baseUrl), {
+  return requestApiJson<GameSnapshot>(`/api/games/${input.gameId}/resign`, baseUrl, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${input.sessionToken}`,
-    },
+    headers: buildAuthHeaders(input.sessionToken),
   });
 }
