@@ -7,12 +7,13 @@ type BoardProps = {
   selected: Position | null;
   legalTargetKeys: ReadonlySet<string>;
   checkedKing: Position | null;
+  interactive: boolean;
   onSquareClick: (position: Position) => void;
 };
 
-export function Board({ board, selected, legalTargetKeys, checkedKing, onSquareClick }: BoardProps) {
+export function Board({ board, selected, legalTargetKeys, checkedKing, interactive, onSquareClick }: BoardProps) {
   return (
-    <section className="board" aria-label="Shogi board">
+    <section className={`board ${interactive ? "" : "is-readonly"}`.trim()} aria-label="Shogi board">
       {board.map((row, y) =>
         row.map((cell, x) => {
           const square = { x, y };
@@ -24,6 +25,7 @@ export function Board({ board, selected, legalTargetKeys, checkedKing, onSquareC
             <button
               key={`${x}-${y}`}
               className={`square ${isSelected ? "is-selected" : ""} ${isLegalTarget ? "is-legal-target" : ""} ${isCheckedKing ? "is-checked-king" : ""}`.trim()}
+              disabled={!interactive}
               onClick={() => onSquareClick(square)}
             >
               {cell ? <Piece piece={cell} /> : null}

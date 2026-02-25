@@ -152,6 +152,10 @@ body {
   background: #3f2f1f;
 }
 
+.board.is-readonly {
+  opacity: 0.74;
+}
+
 .square {
   aspect-ratio: 1;
   border: none;
@@ -160,6 +164,11 @@ body {
   font-size: 18px;
   display: grid;
   place-items: center;
+}
+
+.board.is-readonly .square,
+.square:disabled {
+  cursor: not-allowed;
 }
 
 .square.is-selected {
@@ -269,6 +278,14 @@ body {
   background: #f1e4c8;
 }
 
+.hand-panel.is-readonly {
+  opacity: 0.74;
+}
+
+.hand-panel.is-readonly .hand-piece {
+  cursor: not-allowed;
+}
+
 .clock-panel {
   border: 1px solid #6e5838;
   background: #f7e9c9;
@@ -347,6 +364,14 @@ body {
   font-size: 13px;
   color: #6e5838;
   grid-column: 1 / -1;
+}
+
+.turn-lock-message {
+  margin: 0 auto 10px;
+  width: min(620px, 100%);
+  font-size: 13px;
+  color: #5d4a27;
+  text-align: right;
 }
 
 .promotion-dialog-backdrop {
