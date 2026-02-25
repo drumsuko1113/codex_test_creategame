@@ -7,16 +7,21 @@ type SetupScreenProps = {
   createMainMinutes: string;
   createByoSeconds: string;
   joinGameId: string;
+  spectateGameId: string;
   joinToken: string;
   joinName: string;
   joinSeat: Color;
   createErrors: string[];
   joinErrors: string[];
+  spectateErrors: string[];
   createMessage: string | null;
   joinMessage: string | null;
+  spectateMessage: string | null;
   botMessage: string | null;
+  spectatorUrl: string | null;
   isCreating: boolean;
   isJoining: boolean;
+  isStartingSpectate: boolean;
   isStartingBot: boolean;
   botName: string;
   botSeat: Color;
@@ -24,6 +29,7 @@ type SetupScreenProps = {
   onCreateMainMinutesChange: (value: string) => void;
   onCreateByoSecondsChange: (value: string) => void;
   onJoinGameIdChange: (value: string) => void;
+  onSpectateGameIdChange: (value: string) => void;
   onJoinTokenChange: (value: string) => void;
   onJoinNameChange: (value: string) => void;
   onJoinSeatChange: (seat: Color) => void;
@@ -32,6 +38,7 @@ type SetupScreenProps = {
   onBotStart: () => void;
   onCreateSubmit: () => void;
   onJoinSubmit: () => void;
+  onSpectateSubmit: () => void;
 };
 
 export function SetupScreen({
@@ -39,16 +46,21 @@ export function SetupScreen({
   createMainMinutes,
   createByoSeconds,
   joinGameId,
+  spectateGameId,
   joinToken,
   joinName,
   joinSeat,
   createErrors,
   joinErrors,
+  spectateErrors,
   createMessage,
   joinMessage,
+  spectateMessage,
   botMessage,
+  spectatorUrl,
   isCreating,
   isJoining,
+  isStartingSpectate,
   isStartingBot,
   botName,
   botSeat,
@@ -56,6 +68,7 @@ export function SetupScreen({
   onCreateMainMinutesChange,
   onCreateByoSecondsChange,
   onJoinGameIdChange,
+  onSpectateGameIdChange,
   onJoinTokenChange,
   onJoinNameChange,
   onJoinSeatChange,
@@ -64,6 +77,7 @@ export function SetupScreen({
   onBotStart,
   onCreateSubmit,
   onJoinSubmit,
+  onSpectateSubmit,
 }: SetupScreenProps) {
   return (
     <main className="app">
@@ -191,6 +205,39 @@ export function SetupScreen({
               {joinMessage ? <p className="form-message">{joinMessage}</p> : null}
               <button type="button" className="start-match-button" onClick={onJoinSubmit} disabled={isJoining}>
                 {isJoining ? "参加中..." : "対局に参加"}
+              </button>
+            </section>
+
+            <section className="lobby-card" aria-label="spectate game form">
+              <h3>観戦する</h3>
+              <div className="setup-input-grid">
+                <label className="setup-input-label" htmlFor="spectate-game-id-input">
+                  gameId
+                </label>
+                <input
+                  id="spectate-game-id-input"
+                  className="setup-number-input"
+                  type="text"
+                  value={spectateGameId}
+                  onChange={(event) => onSpectateGameIdChange(event.target.value)}
+                />
+              </div>
+              {spectateErrors.length > 0 ? (
+                <ul className="form-error-list" aria-label="spectate validation errors">
+                  {spectateErrors.map((error) => (
+                    <li key={error}>{error}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {spectateMessage ? <p className="form-message">{spectateMessage}</p> : null}
+              {spectatorUrl ? <p className="form-message">観戦URL: {spectatorUrl}</p> : null}
+              <button
+                type="button"
+                className="start-match-button"
+                onClick={onSpectateSubmit}
+                disabled={isStartingSpectate}
+              >
+                {isStartingSpectate ? "接続中..." : "観戦を開始"}
               </button>
             </section>
           </div>

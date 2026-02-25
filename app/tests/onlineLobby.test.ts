@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatLobbyError, validateCreateGameForm, validateJoinGameForm } from "../src/online/lobbyValidation";
+import { formatLobbyError, validateCreateGameForm, validateJoinGameForm, validateSpectateGameForm } from "../src/online/lobbyValidation";
 
 describe("lobby validation", () => {
   test("validateCreateGameForm returns errors for invalid values", () => {
@@ -53,6 +53,25 @@ describe("lobby validation", () => {
         joinToken: "f".repeat(32),
         name: "player-1",
         seat: "white",
+      },
+    });
+  });
+
+  test("validateSpectateGameForm returns error when gameId is empty", () => {
+    const result = validateSpectateGameForm({ gameId: "   " });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.errors).toContain("観戦するgameIdを入力してください。");
+  });
+
+  test("validateSpectateGameForm trims and accepts valid gameId", () => {
+    const result = validateSpectateGameForm({ gameId: "  game-123  " });
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        gameId: "game-123",
       },
     });
   });
