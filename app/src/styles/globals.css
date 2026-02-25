@@ -129,6 +129,40 @@ body {
   font-size: 13px;
 }
 
+.network-banner {
+  margin: 0 auto 10px;
+  width: min(620px, 100%);
+  border: 1px solid #6a2f2f;
+  background: #fde8e8;
+  color: #5d1f1f;
+  padding: 8px 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.network-banner.is-offline {
+  border-color: #8f6b1e;
+  background: #fff4d5;
+  color: #6a4b10;
+}
+
+.network-retry-button {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.network-retry-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .game-actions {
   margin: 0 auto 10px;
   width: min(620px, 100%);
