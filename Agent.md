@@ -11,6 +11,8 @@ This repository follows a git-flow style workflow.
 2. `develop`
 - Primary integration branch for ongoing development.
 - All feature branches must be created from `develop`.
+- Direct commits/pushes to `develop` are prohibited.
+- Changes must reach `develop` only via reviewed PR merges from `feature/*` or `fix/*`.
 
 3. `feature/*`
 - Implement one feature per branch.
@@ -24,6 +26,20 @@ This repository follows a git-flow style workflow.
 3. Implement only the scoped feature in that branch.
 4. Open PR from `feature/*` to `develop`.
 5. Merge to `main` only through release process.
+6. Never push commits directly to `develop`.
+
+## Issue Implementation Protocol (Mandatory)
+
+1. Handle issues one by one, and create a dedicated branch per issue.
+2. Branch naming should include issue number, e.g. `feature/issue-58-<topic>`.
+3. Before coding, write and confirm concrete requirements for that issue.
+4. Use TDD by default:
+- Write/extend tests first and confirm they fail for the target behavior.
+- Implement the minimum change to make tests pass.
+- Refactor while keeping tests green.
+5. CI-related issues may skip strict TDD where not practical.
+6. After implementation, always run regression tests (`npm test`) and build check (`npm run build`).
+7. Do not batch multiple issues into a single implementation branch.
 
 ## Operational Rules for Agents
 
