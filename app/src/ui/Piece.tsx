@@ -1,5 +1,6 @@
 ﻿import { type CSSProperties } from "react";
 import { type Piece as PieceType } from "../../../core/src/types";
+import { PIECE_SPRITE_PATH } from "../assets";
 
 type PieceProps = {
   piece: PieceType;
@@ -53,7 +54,7 @@ function toPercent(index: number, maxIndex: number): string {
 export function Piece({ piece }: PieceProps) {
   const { col, row } = spritePosition(piece);
   const style: CSSProperties = {
-    backgroundImage: 'url("/将棋駒.png")',
+    backgroundImage: `url("${PIECE_SPRITE_PATH}")`,
     backgroundSize: `${COLS * 100}% ${ROWS * 100}%`,
     backgroundPosition: `${toPercent(col, COLS - 1)} ${toPercent(row, ROWS - 1)}`,
   };

@@ -15,6 +15,10 @@ const store = new InMemoryStore();
 const rateLimiter = new RateLimiter(60_000, 120);
 const realtime = new RealtimeHub();
 
+function getErrorCode(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 function authenticateActor(
   req: IncomingMessage,
   res: ServerResponse,
@@ -24,7 +28,7 @@ function authenticateActor(
   try {
     return requireSessionAuth(req, store, gameId);
   } catch (error) {
-    const code = error instanceof Error ? error.message : "UNAUTHORIZED";
+    const code = getErrorCode(error, "UNAUTHORIZED");
     if (code === "UNAUTHORIZED") {
       respondError(res, ctx, 401, code, "Session token is missing or invalid", { gameId });
       return null;
@@ -77,7 +81,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       realtime.broadcast(gameId, "player.joined", joined);
       return;
     } catch (error) {
-      const code = error instanceof Error ? error.message : "UNKNOWN";
+      const code = getErrorCode(error, "UNKNOWN");
       if (code === "GAME_NOT_FOUND") {
         respondError(res, ctx, 404, code, "Game was not found", { gameId });
         return;
@@ -151,17 +155,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       realtime.broadcast(gameId, "game.updated", updated);
       return;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "UNKNOWN";
-      if (message === "GAME_NOT_FOUND") {
-        respondError(res, ctx, 404, message, "Game was not found", { gameId, guestId: actor.guestId });
+      const code = getErrorCode(error, "UNKNOWN");
+      if (code === "GAME_NOT_FOUND") {
+        respondError(res, ctx, 404, code, "Game was not found", { gameId, guestId: actor.guestId });
         return;
       }
-      if (message === "GAME_NOT_ACTIVE" || message === "NOT_YOUR_TURN" || message === "VERSION_CONFLICT") {
-        respondError(res, ctx, 409, message, "Move cannot be applied in current game state", { gameId, guestId: actor.guestId });
+      if (code === "GAME_NOT_ACTIVE" || code === "NOT_YOUR_TURN" || code === "VERSION_CONFLICT") {
+        respondError(res, ctx, 409, code, "Move cannot be applied in current game state", { gameId, guestId: actor.guestId });
         return;
       }
-      if (message.startsWith("ILLEGAL_MOVE:")) {
-        respondError(res, ctx, 400, "ILLEGAL_MOVE", message, { gameId, guestId: actor.guestId });
+      if (code.startsWith("ILLEGAL_MOVE:")) {
+        respondError(res, ctx, 400, "ILLEGAL_MOVE", code, { gameId, guestId: actor.guestId });
         return;
       }
       throw error;
@@ -182,13 +186,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       realtime.broadcast(gameId, "game.finished", updated);
       return;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "UNKNOWN";
-      if (message === "GAME_NOT_FOUND") {
-        respondError(res, ctx, 404, message, "Game was not found", { gameId, guestId: actor.guestId });
+      const code = getErrorCode(error, "UNKNOWN");
+      if (code === "GAME_NOT_FOUND") {
+        respondError(res, ctx, 404, code, "Game was not found", { gameId, guestId: actor.guestId });
         return;
       }
-      if (message === "GAME_ALREADY_FINISHED") {
-        respondError(res, ctx, 409, message, "Game is already finished", { gameId, guestId: actor.guestId });
+      if (code === "GAME_ALREADY_FINISHED") {
+        respondError(res, ctx, 409, code, "Game is already finished", { gameId, guestId: actor.guestId });
         return;
       }
       throw error;
@@ -202,7 +206,7 @@ export function createApp() {
   const server = createServer((req, res) => {
     handleRequest(req, res).catch((error: unknown) => {
       const ctx = makeRequestContext(req);
-      const message = error instanceof Error ? error.message : "Internal Server Error";
+      const message = getErrorCode(error, "Internal Server Error");
       log({
         level: "error",
         event: "http.error",

@@ -6,6 +6,7 @@ import { createInitialGameState } from "../../core/src/initialPosition";
 import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
 import { findSamePositionIndices } from "../../core/src/repetition";
 import { type BoardMove, type Color, type GameState, type PieceKind, type Position } from "../../core/src/types";
+import { PIECE_SOUND_PATH } from "./assets";
 import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/moveText";
 import { positionToKey } from "./game/position";
 import { findPerpetualCheckLoser } from "./game/repetitionJudge";
@@ -55,7 +56,7 @@ export function App() {
   const pieceSoundRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    pieceSoundRef.current = new Audio("/piece-sound.mp3");
+    pieceSoundRef.current = new Audio(PIECE_SOUND_PATH);
     pieceSoundRef.current.preload = "auto";
     return () => {
       if (pieceSoundRef.current) {
