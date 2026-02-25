@@ -26,7 +26,7 @@ export function Hand({ hands, color, active, selectedDrop, onSelectDrop }: HandP
   });
 
   return (
-    <aside className="hand-panel" aria-label="持ち駒">
+    <aside className={`hand-panel ${active ? "" : "is-readonly"}`.trim()} aria-label="持ち駒">
       <div className="hand-pieces">
         {slots.map((slot) => {
           const selected = active && selectedDrop === slot.kind;

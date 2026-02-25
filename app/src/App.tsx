@@ -8,6 +8,7 @@ import { PIECE_SOUND_PATH } from "./assets";
 import { formatMoveText, sideLabel, winnerLabel } from "./game/moveText";
 import { positionToKey } from "./game/position";
 import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, normalizeTimeControl, type ClockState, type TimeControl } from "./game/timeControl";
+import { canOperateTurn, getTurnLockMessage } from "./game/turnControl";
 import {
   ApiClientError,
   createGame,
@@ -124,15 +125,26 @@ export function App() {
     [clearSelections],
   );
 
+  const canOperateNow = canOperateTurn({
+    screenMode,
+    sessionSeat: session?.seat ?? null,
+    turn: state.turn,
+    gameOver,
+    isPaused,
+    pendingPromotion: pendingPromotion !== null,
+    isSubmittingMove,
+    isSyncingSnapshot,
+  });
+
   const toggleDropSelection = useCallback(
     (kind: PieceKind) => {
-      if (gameOver || isPaused || pendingPromotion || isSubmittingMove || isSyncingSnapshot) {
+      if (!canOperateNow) {
         return;
       }
       setSelected(null);
       setSelectedDrop((current) => (current === kind ? null : kind));
     },
-    [gameOver, isPaused, pendingPromotion, isSubmittingMove, isSyncingSnapshot],
+    [canOperateNow],
   );
 
   const toGameErrorMessage = useCallback((error: unknown): string => {
@@ -146,6 +158,7 @@ export function App() {
       NOT_YOUR_TURN: "現在はあなたの手番ではありません。",
       GAME_ALREADY_FINISHED: "対局はすでに終了しています。",
       ILLEGAL_MOVE: "不正な着手です。入力内容を確認してください。",
+      UNAUTHORIZED: "セッションが無効です。対局への参加をやり直してください。",
     };
 
     if (error.code in byCode) {
@@ -316,7 +329,7 @@ export function App() {
   }, [state]);
 
   const legalTargets = useMemo(() => {
-    if (screenMode !== "game" || !selected || gameOver || isPaused || pendingPromotion || selectedDrop || isSubmittingMove || isSyncingSnapshot) {
+    if (!canOperateNow || !selected || selectedDrop) {
       return [];
     }
 
@@ -344,7 +357,7 @@ export function App() {
     }
 
     return targets;
-  }, [screenMode, selected, gameOver, isPaused, pendingPromotion, selectedDrop, isSubmittingMove, isSyncingSnapshot, state]);
+  }, [canOperateNow, selected, selectedDrop, state]);
 
   const legalTargetKeys = useMemo(() => {
     return new Set(legalTargets.map(positionToKey));
@@ -362,7 +375,7 @@ export function App() {
 
   const submitMoveByApi = useCallback(
     async (move: Move) => {
-      if (!session) {
+      if (!session || !canOperateNow) {
         return;
       }
 
@@ -391,12 +404,12 @@ export function App() {
         setIsSubmittingMove(false);
       }
     },
-    [session, gameVersion, appendMoveHistory, applySnapshot, syncSnapshot, toGameErrorMessage],
+    [session, canOperateNow, gameVersion, appendMoveHistory, applySnapshot, syncSnapshot, toGameErrorMessage],
   );
 
   const onSquareClick = useCallback(
     (position: Position) => {
-      if (screenMode !== "game" || gameOver || isPaused || pendingPromotion || isSubmittingMove || isSyncingSnapshot) {
+      if (!canOperateNow) {
         return;
       }
 
@@ -438,12 +451,7 @@ export function App() {
       setSelected(null);
     },
     [
-      screenMode,
-      gameOver,
-      isPaused,
-      pendingPromotion,
-      isSubmittingMove,
-      isSyncingSnapshot,
+      canOperateNow,
       selectedDrop,
       clearSelections,
       state,
@@ -527,6 +535,14 @@ export function App() {
     );
   }
 
+  const turnLockMessage = getTurnLockMessage({
+    screenMode,
+    sessionSeat: session?.seat ?? null,
+    turn: state.turn,
+    gameOver,
+    isPaused,
+  });
+
   const captionText = gameMessage
     ? gameMessage
     : gameOver
@@ -568,12 +584,13 @@ export function App() {
           設定画面へ戻る
         </button>
       </section>
+      {turnLockMessage && !gameMessage ? <p className="turn-lock-message">{turnLockMessage}</p> : null}
       <section className="game-area">
         <div className="hand-anchor hand-anchor-white">
           <Hand
             hands={state.hands}
             color="white"
-            active={!gameOver && !isPaused && !isSubmittingMove && !isSyncingSnapshot && state.turn === "white"}
+            active={canOperateNow && session?.seat === "white"}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
@@ -596,6 +613,7 @@ export function App() {
           selected={selected}
           legalTargetKeys={legalTargetKeys}
           checkedKing={checkedKing}
+          interactive={canOperateNow}
           onSquareClick={onSquareClick}
         />
 
@@ -607,7 +625,7 @@ export function App() {
           <Hand
             hands={state.hands}
             color="black"
-            active={!gameOver && !isPaused && !isSubmittingMove && !isSyncingSnapshot && state.turn === "black"}
+            active={canOperateNow && session?.seat === "black"}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
