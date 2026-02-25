@@ -22,10 +22,11 @@ import {
   type GameSnapshot,
 } from "./online/gameApi";
 import { buildResultText, toClockState } from "./online/gameSnapshot";
-import { formatLobbyError, validateCreateGameForm, validateJoinGameForm } from "./online/lobbyValidation";
+import { formatLobbyError, validateCreateGameForm, validateJoinGameForm, validateSpectateGameForm } from "./online/lobbyValidation";
 import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
 import { computePollingRetryDelayMs, isRetryableNetworkError } from "./online/networkRecovery";
 import { clearStoredSession, loadStoredSession, saveStoredSession } from "./online/sessionPersistence";
+import { buildSpectatorUrl, parseSpectateGameId } from "./online/spectatorLink";
 import { chooseRandomMove } from "../../bot/src/randomBot";
 import { getBotResignOutcome, isBotTurn } from "./game/botMode";
 import { Board } from "./ui/Board";
@@ -57,6 +58,12 @@ type SessionState = {
 export function App() {
   const initialTimeControl = DEFAULT_TIME_CONTROL;
   const initialState = useMemo(() => createInitialGameState(), []);
+  const initialSpectateGameId = useMemo(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    return parseSpectateGameId(window.location.search);
+  }, []);
 
   const [screenMode, setScreenMode] = useState<ScreenMode>("setup");
   const [setupMode, setSetupMode] = useState<MatchMode>("online");
@@ -64,6 +71,7 @@ export function App() {
   const [createMainMinutes, setCreateMainMinutes] = useState<string>(String(Math.floor(initialTimeControl.mainSeconds / 60)));
   const [createByoSeconds, setCreateByoSeconds] = useState<string>(String(initialTimeControl.byoSeconds));
   const [joinGameId, setJoinGameId] = useState<string>("");
+  const [spectateGameId, setSpectateGameId] = useState<string>(initialSpectateGameId ?? "");
   const [joinToken, setJoinToken] = useState<string>("");
   const [joinName, setJoinName] = useState<string>("");
   const [joinSeat, setJoinSeat] = useState<Color>("black");
@@ -71,14 +79,18 @@ export function App() {
   const [botSeat, setBotSeat] = useState<Color>("black");
   const [createErrors, setCreateErrors] = useState<string[]>([]);
   const [joinErrors, setJoinErrors] = useState<string[]>([]);
+  const [spectateErrors, setSpectateErrors] = useState<string[]>([]);
   const [createMessage, setCreateMessage] = useState<string | null>(null);
   const [joinMessage, setJoinMessage] = useState<string | null>(null);
+  const [spectateMessage, setSpectateMessage] = useState<string | null>(null);
   const [botMessage, setBotMessage] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [isStartingSpectate, setIsStartingSpectate] = useState(false);
   const [isStartingBot, setIsStartingBot] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
+  const [spectatorGameId, setSpectatorGameId] = useState<string | null>(null);
   const [timeControl, setTimeControl] = useState<TimeControl>(initialTimeControl);
 
   const [state, setState] = useState<GameState>(initialState);
@@ -103,6 +115,7 @@ export function App() {
   const latestVersionRef = useRef(gameVersion);
   const pollingInFlightRef = useRef(false);
   const pollingFailureCountRef = useRef(0);
+  const hasAutoStartedSpectateRef = useRef(false);
 
   useEffect(() => {
     pieceSoundRef.current = new Audio(PIECE_SOUND_PATH);
@@ -129,10 +142,35 @@ export function App() {
     setSetupMode(mode);
     setCreateErrors([]);
     setJoinErrors([]);
+    setSpectateErrors([]);
     setCreateMessage(null);
     setJoinMessage(null);
+    setSpectateMessage(null);
     setBotMessage(null);
   }, []);
+
+  const replaceSpectateLocation = useCallback((gameId: string | null) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const nextUrl = gameId
+      ? buildSpectatorUrl(window.location.origin, window.location.pathname, gameId)
+      : `${window.location.origin}${window.location.pathname}`;
+    window.history.replaceState(null, "", nextUrl);
+  }, []);
+
+  const spectatorUrl = useMemo(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const sourceGameId = joinGameId.trim() || spectateGameId.trim();
+    if (!sourceGameId) {
+      return null;
+    }
+    return buildSpectatorUrl(window.location.origin, window.location.pathname, sourceGameId);
+  }, [joinGameId, spectateGameId]);
 
   const setNetworkBannerFromError = useCallback((error: unknown) => {
     if (!isRetryableNetworkError(error)) {
@@ -164,6 +202,8 @@ export function App() {
   );
 
   const playerSeat = matchMode === "bot" ? botSeat : session?.seat ?? null;
+  const onlineGameId = session?.gameId ?? spectatorGameId;
+  const isSpectatorMode = matchMode === "online" && session === null && screenMode === "game";
 
   const canOperateNow = canOperateTurn({
     screenMode,
@@ -247,6 +287,10 @@ export function App() {
   );
 
   useEffect(() => {
+    if (initialSpectateGameId) {
+      return;
+    }
+
     let disposed = false;
 
     const restoreSession = async () => {
@@ -278,6 +322,7 @@ export function App() {
         }
 
         setSession(restoredSession);
+        setSpectatorGameId(null);
         const restored = await syncSnapshot(restoredSession.gameId, {
           showDialog: false,
           suppressError: true,
@@ -294,6 +339,9 @@ export function App() {
         saveStoredSession(restoredSession);
         setJoinMessage(null);
         setGameMessage(null);
+        setSpectateMessage(null);
+        setSpectateErrors([]);
+        replaceSpectateLocation(null);
         setMatchMode("online");
         setScreenMode("game");
       } catch (error) {
@@ -322,7 +370,7 @@ export function App() {
     return () => {
       disposed = true;
     };
-  }, [syncSnapshot]);
+  }, [initialSpectateGameId, replaceSpectateLocation, syncSnapshot]);
 
   const onCreateGame = useCallback(async () => {
     const validated = validateCreateGameForm({ mainMinutes: createMainMinutes, byoSeconds: createByoSeconds });
@@ -379,10 +427,14 @@ export function App() {
         sessionToken: joined.sessionToken,
       };
       setSession(nextSession);
+      setSpectatorGameId(null);
       saveStoredSession(nextSession);
       await syncSnapshot(nextSession.gameId, { showDialog: false });
       setGameMessage(null);
       setNetworkBannerMessage(null);
+      setSpectateErrors([]);
+      setSpectateMessage(null);
+      replaceSpectateLocation(null);
       setMatchMode("online");
       setScreenMode("game");
     } catch (error) {
@@ -395,7 +447,62 @@ export function App() {
     } finally {
       setIsJoining(false);
     }
-  }, [joinGameId, joinToken, joinName, joinSeat, syncSnapshot, setNetworkBannerFromError]);
+  }, [joinGameId, joinToken, joinName, joinSeat, replaceSpectateLocation, syncSnapshot, setNetworkBannerFromError]);
+
+  const startSpectatingByGameId = useCallback(async (gameId: string): Promise<boolean> => {
+    setIsStartingSpectate(true);
+    try {
+      clearStoredSession();
+      setSession(null);
+      setSpectatorGameId(gameId);
+      setMatchMode("online");
+      setSetupMode("online");
+      setScreenMode("game");
+      setIsPaused(false);
+      setMoveHistory([]);
+      setWinner(null);
+      setResultText(null);
+      setGameOver(false);
+      setShowRestartDialog(false);
+      setGameMessage(null);
+      setNetworkBannerMessage(null);
+      setState(initialState);
+      setClockState(createClockState(initialTimeControl));
+      setGameVersion(1);
+      latestVersionRef.current = 1;
+      clearSelections();
+
+      const synced = await syncSnapshot(gameId, { showDialog: false });
+      if (!synced) {
+        setScreenMode("setup");
+        setSpectatorGameId(null);
+        setGameMessage(null);
+        setSpectateMessage("観戦開始に失敗しました。gameIdを確認してください。");
+        replaceSpectateLocation(null);
+        return false;
+      }
+
+      setSpectateGameId(gameId);
+      setSpectateMessage(`観戦中: ${gameId}`);
+      replaceSpectateLocation(gameId);
+      return true;
+    } finally {
+      setIsStartingSpectate(false);
+    }
+  }, [clearSelections, initialState, initialTimeControl, replaceSpectateLocation, syncSnapshot]);
+
+  const onStartSpectate = useCallback(async () => {
+    const validated = validateSpectateGameForm({ gameId: spectateGameId });
+    if (!validated.ok) {
+      setSpectateErrors(validated.errors);
+      setSpectateMessage(null);
+      return;
+    }
+
+    setSpectateErrors([]);
+    setSpectateMessage(null);
+    await startSpectatingByGameId(validated.value.gameId);
+  }, [spectateGameId, startSpectatingByGameId]);
 
   const onStartBotGame = useCallback(() => {
     const normalizedName = botName.trim();
@@ -416,6 +523,7 @@ export function App() {
 
       clearStoredSession();
       setSession(localSession);
+      setSpectatorGameId(null);
       setMatchMode("bot");
       setScreenMode("game");
       setState(initialState);
@@ -431,14 +539,28 @@ export function App() {
       setGameMessage(null);
       setNetworkBannerMessage(null);
       setBotMessage(null);
+      setSpectateMessage(null);
+      setSpectateErrors([]);
+      replaceSpectateLocation(null);
       clearSelections();
     } finally {
       setIsStartingBot(false);
     }
-  }, [botName, botSeat, clearSelections, initialState, initialTimeControl]);
+  }, [botName, botSeat, clearSelections, initialState, initialTimeControl, replaceSpectateLocation]);
 
   useEffect(() => {
-    if (screenMode !== "game" || matchMode !== "online" || !session || gameOver) {
+    if (!initialSpectateGameId || hasAutoStartedSpectateRef.current) {
+      return;
+    }
+
+    hasAutoStartedSpectateRef.current = true;
+    setSpectateErrors([]);
+    setSpectateMessage(null);
+    void startSpectatingByGameId(initialSpectateGameId);
+  }, [initialSpectateGameId, startSpectatingByGameId]);
+
+  useEffect(() => {
+    if (screenMode !== "game" || matchMode !== "online" || !onlineGameId || gameOver) {
       return;
     }
 
@@ -467,7 +589,7 @@ export function App() {
 
       pollingInFlightRef.current = true;
       try {
-        const synced = await syncSnapshot(session.gameId, {
+        const synced = await syncSnapshot(onlineGameId, {
           showDialog: false,
           suppressError: true,
           onlyIfVersionAdvanced: true,
@@ -497,7 +619,7 @@ export function App() {
         window.clearTimeout(timerId);
       }
     };
-  }, [screenMode, matchMode, session, gameOver, syncSnapshot, isOffline]);
+  }, [screenMode, matchMode, onlineGameId, gameOver, syncSnapshot, isOffline]);
 
   useEffect(() => {
     if (matchMode !== "online" || typeof window === "undefined") {
@@ -514,8 +636,8 @@ export function App() {
       pollingFailureCountRef.current = 0;
       setNetworkBannerMessage("ネットワークに再接続しました。同期を再試行します。");
 
-      if (screenMode === "game" && session && !gameOver) {
-        void syncSnapshot(session.gameId, { showDialog: false, suppressError: true }).then((synced) => {
+      if (screenMode === "game" && onlineGameId && !gameOver) {
+        void syncSnapshot(onlineGameId, { showDialog: false, suppressError: true }).then((synced) => {
           if (synced) {
             setNetworkBannerMessage(null);
             setGameMessage(null);
@@ -531,7 +653,7 @@ export function App() {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
     };
-  }, [matchMode, screenMode, session, gameOver, syncSnapshot]);
+  }, [matchMode, screenMode, onlineGameId, gameOver, syncSnapshot]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
@@ -837,9 +959,13 @@ export function App() {
     setGameMessage(null);
     setNetworkBannerMessage(null);
     setBotMessage(null);
+    setSpectateMessage(null);
+    setSpectateErrors([]);
+    setIsStartingSpectate(false);
     setIsStartingBot(false);
     clearStoredSession();
     setSession(null);
+    setSpectatorGameId(null);
     setMoveHistory([]);
     setWinner(null);
     setResultText(null);
@@ -848,8 +974,9 @@ export function App() {
     setClockState(createClockState(initialTimeControl));
     setGameVersion(1);
     latestVersionRef.current = 1;
+    replaceSpectateLocation(null);
     clearSelections();
-  }, [clearSelections, initialState, initialTimeControl]);
+  }, [clearSelections, initialState, initialTimeControl, replaceSpectateLocation]);
 
   const resign = useCallback(async () => {
     if (screenMode !== "game" || gameOver || isPaused || isSubmittingResign || isSyncingSnapshot) {
@@ -895,17 +1022,17 @@ export function App() {
   }, [screenMode, gameOver, isPaused, isSubmittingResign, isSyncingSnapshot, moveHistory.length, matchMode, botSeat, session, state.turn, applySnapshot, syncSnapshot, toGameErrorMessage]);
 
   const retrySync = useCallback(async () => {
-    if (matchMode !== "online" || !session) {
+    if (matchMode !== "online" || !onlineGameId) {
       return;
     }
 
-    const synced = await syncSnapshot(session.gameId, { showDialog: false });
+    const synced = await syncSnapshot(onlineGameId, { showDialog: false });
     if (synced) {
       pollingFailureCountRef.current = 0;
       setNetworkBannerMessage(null);
       setGameMessage(null);
     }
-  }, [matchMode, session, syncSnapshot]);
+  }, [matchMode, onlineGameId, syncSnapshot]);
 
   if (screenMode === "setup") {
     return (
@@ -914,6 +1041,7 @@ export function App() {
         createMainMinutes={createMainMinutes}
         createByoSeconds={createByoSeconds}
         joinGameId={joinGameId}
+        spectateGameId={spectateGameId}
         joinToken={joinToken}
         joinName={joinName}
         joinSeat={joinSeat}
@@ -921,16 +1049,21 @@ export function App() {
         botSeat={botSeat}
         createErrors={createErrors}
         joinErrors={joinErrors}
+        spectateErrors={spectateErrors}
         createMessage={createMessage}
         joinMessage={joinMessage}
+        spectateMessage={spectateMessage}
         botMessage={botMessage}
+        spectatorUrl={spectatorUrl}
         isCreating={isCreating}
         isJoining={isJoining || isRestoringSession}
+        isStartingSpectate={isStartingSpectate}
         isStartingBot={isStartingBot}
         onSetupModeChange={onSetupModeChange}
         onCreateMainMinutesChange={setCreateMainMinutes}
         onCreateByoSecondsChange={setCreateByoSeconds}
         onJoinGameIdChange={setJoinGameId}
+        onSpectateGameIdChange={setSpectateGameId}
         onJoinTokenChange={setJoinToken}
         onJoinNameChange={setJoinName}
         onJoinSeatChange={setJoinSeat}
@@ -939,6 +1072,9 @@ export function App() {
         onBotStart={onStartBotGame}
         onCreateSubmit={onCreateGame}
         onJoinSubmit={onJoinGame}
+        onSpectateSubmit={() => {
+          void onStartSpectate();
+        }}
       />
     );
   }
@@ -957,7 +1093,9 @@ export function App() {
       ? `結果: ${resultText ?? "終局"}`
       : isPaused
         ? "一時停止中"
-        : `手番: ${winnerLabel(state.turn)}`;
+        : isSpectatorMode
+          ? `観戦中: ${winnerLabel(state.turn)}の手番`
+          : `手番: ${winnerLabel(state.turn)}`;
 
   return (
     <main className="app">
@@ -968,6 +1106,8 @@ export function App() {
             ? `gameId: ${session.gameId} / seat: ${session.seat} / name: ${session.displayName} / version: ${gameVersion}`
             : `mode: bot / seat: ${session.seat} / name: ${session.displayName} / version: ${gameVersion}`}
         </p>
+      ) : matchMode === "online" && spectatorGameId ? (
+        <p className="session-summary">mode: spectator / gameId: {spectatorGameId} / version: {gameVersion}</p>
       ) : null}
       {matchMode === "online" && networkBannerMessage ? (
         <section className={`network-banner ${isOffline ? "is-offline" : ""}`.trim()} role="status" aria-live="polite">
@@ -978,7 +1118,7 @@ export function App() {
             onClick={() => {
               void retrySync();
             }}
-            disabled={matchMode !== "online" || !session || isSyncingSnapshot}
+            disabled={matchMode !== "online" || !onlineGameId || isSyncingSnapshot || isSpectatorMode}
           >
             再試行
           </button>
@@ -989,18 +1129,18 @@ export function App() {
           type="button"
           className="setup-button"
           onClick={() => setIsPaused((current) => !current)}
-          disabled={gameOver || isSubmittingMove || isSyncingSnapshot || isSubmittingResign}
+          disabled={gameOver || isSubmittingMove || isSyncingSnapshot || isSubmittingResign || isSpectatorMode}
         >
           {isPaused ? "再開" : "一時停止"}
         </button>
-        {matchMode === "online" ? (
+        {matchMode === "online" && !isSpectatorMode ? (
           <button
             type="button"
             className="setup-button"
             onClick={() => {
               void retrySync();
             }}
-            disabled={!session || isSyncingSnapshot}
+            disabled={!onlineGameId || isSyncingSnapshot}
           >
             再取得
           </button>
@@ -1061,7 +1201,7 @@ export function App() {
         <button
           type="button"
           className="resign-button"
-          disabled={gameOver || isPaused || isSubmittingResign || isSubmittingMove || isSyncingSnapshot}
+          disabled={gameOver || isPaused || isSubmittingResign || isSubmittingMove || isSyncingSnapshot || isSpectatorMode}
           onClick={() => {
             void resign();
           }}

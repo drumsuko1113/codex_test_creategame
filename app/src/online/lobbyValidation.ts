@@ -12,6 +12,10 @@ export type JoinGameFormInput = {
   seat: Seat;
 };
 
+export type SpectateGameFormInput = {
+  gameId: string;
+};
+
 type ValidationOk<T> = {
   ok: true;
   value: T;
@@ -86,6 +90,26 @@ export function validateJoinGameForm(
       joinToken,
       name,
       seat: input.seat,
+    },
+  };
+}
+
+export function validateSpectateGameForm(input: SpectateGameFormInput): ValidationResult<{ gameId: string }> {
+  const errors: string[] = [];
+  const gameId = input.gameId.trim();
+
+  if (!gameId) {
+    errors.push("観戦するgameIdを入力してください。");
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: {
+      gameId,
     },
   };
 }

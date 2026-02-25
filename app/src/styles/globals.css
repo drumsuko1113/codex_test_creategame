@@ -119,6 +119,7 @@ body {
   margin: 0;
   font-size: 13px;
   color: #1f4b23;
+  word-break: break-word;
 }
 
 .session-summary {
