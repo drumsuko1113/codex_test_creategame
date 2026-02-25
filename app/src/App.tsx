@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { findKingPosition, isInCheck } from "../../core/src/check";
-import { isCheckmate } from "../../core/src/checkmate";
 import { createInitialGameState } from "../../core/src/initialPosition";
 import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
-import { findSamePositionIndices } from "../../core/src/repetition";
-import { type BoardMove, type Color, type GameState, type PieceKind, type Position } from "../../core/src/types";
+import { type BoardMove, type Color, type GameState, type Move, type PieceKind, type Position } from "../../core/src/types";
 import { PIECE_SOUND_PATH } from "./assets";
-import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/moveText";
+import { formatMoveText, sideLabel, winnerLabel } from "./game/moveText";
 import { positionToKey } from "./game/position";
-import { findPerpetualCheckLoser } from "./game/repetitionJudge";
 import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, normalizeTimeControl, type ClockState, type TimeControl } from "./game/timeControl";
-import { ApiClientError, createGame, joinGame } from "./online/gameApi";
+import {
+  ApiClientError,
+  createGame,
+  getGameSnapshot,
+  joinGame,
+  resignGame,
+  submitMove,
+  type GameSnapshot,
+} from "./online/gameApi";
+import { buildResultText, toClockState } from "./online/gameSnapshot";
 import { formatLobbyError, validateCreateGameForm, validateJoinGameForm } from "./online/lobbyValidation";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
@@ -60,8 +66,7 @@ export function App() {
 
   const [state, setState] = useState<GameState>(initialState);
   const [clockState, setClockState] = useState<ClockState>(() => createClockState(initialTimeControl));
-  const [stateHistory, setStateHistory] = useState<GameState[]>([initialState]);
-  const [checkingHistory, setCheckingHistory] = useState<Array<Color | null>>([]);
+  const [gameVersion, setGameVersion] = useState<number>(1);
   const [selected, setSelected] = useState<Position | null>(null);
   const [selectedDrop, setSelectedDrop] = useState<PieceKind | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
@@ -71,6 +76,10 @@ export function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
+  const [gameMessage, setGameMessage] = useState<string | null>(null);
+  const [isSyncingSnapshot, setIsSyncingSnapshot] = useState(false);
+  const [isSubmittingMove, setIsSubmittingMove] = useState(false);
+  const [isSubmittingResign, setIsSubmittingResign] = useState(false);
   const pieceSoundRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -90,12 +99,18 @@ export function App() {
     setPendingPromotion(null);
   }, []);
 
-  const finishGame = useCallback(
-    (nextWinner: Color | null, message: string) => {
-      setWinner(nextWinner);
-      setResultText(message);
-      setGameOver(true);
-      setShowRestartDialog(true);
+  const applySnapshot = useCallback(
+    (snapshot: GameSnapshot, options: { showDialog?: boolean } = {}) => {
+      setState(snapshot.state);
+      setClockState(toClockState(snapshot));
+      setGameVersion(snapshot.version);
+      setWinner(snapshot.winner);
+
+      const nextResultText = buildResultText(snapshot);
+      const finished = snapshot.status === "finished";
+      setResultText(nextResultText);
+      setGameOver(finished);
+      setShowRestartDialog(finished && options.showDialog !== false);
       clearSelections();
     },
     [clearSelections],
@@ -103,13 +118,47 @@ export function App() {
 
   const toggleDropSelection = useCallback(
     (kind: PieceKind) => {
-      if (gameOver || isPaused || pendingPromotion) {
+      if (gameOver || isPaused || pendingPromotion || isSubmittingMove || isSyncingSnapshot) {
         return;
       }
       setSelected(null);
       setSelectedDrop((current) => (current === kind ? null : kind));
     },
-    [gameOver, isPaused, pendingPromotion],
+    [gameOver, isPaused, pendingPromotion, isSubmittingMove, isSyncingSnapshot],
+  );
+
+  const toGameErrorMessage = useCallback((error: unknown): string => {
+    if (!(error instanceof ApiClientError)) {
+      return "‘Î‹Ç‘€ì‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B";
+    }
+
+    const byCode: Record<string, string> = {
+      VERSION_CONFLICT: "‘¼ƒvƒŒƒCƒ„[‚Ì’…è‚ªæ‚É”½‰f‚³‚ê‚Ü‚µ‚½B‹Ç–Ê‚ğÄæ“¾‚µ‚Ü‚·B",
+      GAME_NOT_ACTIVE: "‘Î‹Ç‚ªŠJn‚µ‚Ä‚¢‚È‚¢‚½‚ß’…è‚Å‚«‚Ü‚¹‚ñB",
+      NOT_YOUR_TURN: "Œ»İ‚Í‚ ‚È‚½‚Ìè”Ô‚Å‚Í‚ ‚è‚Ü‚¹‚ñB",
+      GAME_ALREADY_FINISHED: "‘Î‹Ç‚Í‚·‚Å‚ÉI—¹‚µ‚Ä‚¢‚Ü‚·B",
+      ILLEGAL_MOVE: "•s³‚È’…è‚Å‚·B“ü—Í“à—e‚ğŠm”F‚µ‚Ä‚­‚¾‚³‚¢B",
+    };
+
+    if (error.code in byCode) {
+      return byCode[error.code];
+    }
+    return formatLobbyError(error);
+  }, []);
+
+  const syncSnapshot = useCallback(
+    async (gameId: string, options: { showDialog?: boolean } = {}) => {
+      setIsSyncingSnapshot(true);
+      try {
+        const snapshot = await getGameSnapshot(gameId);
+        applySnapshot(snapshot, options);
+      } catch (error) {
+        setGameMessage(toGameErrorMessage(error));
+      } finally {
+        setIsSyncingSnapshot(false);
+      }
+    },
+    [applySnapshot, toGameErrorMessage],
   );
 
   const onCreateGame = useCallback(async () => {
@@ -127,13 +176,13 @@ export function App() {
       const created = await createGame(validated.value);
       setJoinGameId(created.gameId);
       setJoinToken(created.joinToken);
-      setCreateMessage(`å¯¾å±€ã‚’ä½œæˆã—ã¾ã—ãŸã€‚gameId: ${created.gameId}`);
+      setCreateMessage(`‘Î‹Ç‚ğì¬‚µ‚Ü‚µ‚½BgameId: ${created.gameId}`);
       setTimeControl(normalizeTimeControl(validated.value.mainMinutes, validated.value.byoSeconds));
     } catch (error) {
       if (error instanceof ApiClientError) {
         setCreateMessage(formatLobbyError(error));
       } else {
-        setCreateMessage("å¯¾å±€ä½œæˆã«å¤±æ•—ã—ã¾ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚");
+        setCreateMessage("‘Î‹Çì¬‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B");
       }
     } finally {
       setIsCreating(false);
@@ -158,67 +207,26 @@ export function App() {
     setIsJoining(true);
     try {
       const joined = await joinGame(validated.value);
-      setSession({
+      const nextSession: SessionState = {
         gameId: validated.value.gameId,
         seat: joined.seat,
         displayName: validated.value.name,
         sessionToken: joined.sessionToken,
-      });
-      startNewGame("black", timeControl);
+      };
+      setSession(nextSession);
+      await syncSnapshot(nextSession.gameId, { showDialog: false });
+      setGameMessage(null);
       setScreenMode("game");
     } catch (error) {
       if (error instanceof ApiClientError) {
         setJoinMessage(formatLobbyError(error));
       } else {
-        setJoinMessage("å¯¾å±€å‚åŠ ã«å¤±æ•—ã—ã¾ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚");
+        setJoinMessage("‘Î‹ÇQ‰Á‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B");
       }
     } finally {
       setIsJoining(false);
     }
-  }, [joinGameId, joinToken, joinName, joinSeat, timeControl]);
-
-  useEffect(() => {
-    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
-      return;
-    }
-
-    const timerId = window.setInterval(() => {
-      setClockState((current) => {
-        const next: ClockState = {
-          main: { ...current.main },
-          byo: { ...current.byo },
-        };
-        const active = state.turn;
-
-        if (next.main[active] > 0) {
-          next.main[active] -= 1;
-        } else if (timeControl.byoSeconds > 0 && next.byo[active] > 0) {
-          next.byo[active] -= 1;
-        }
-
-        return next;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(timerId);
-  }, [screenMode, state.turn, gameOver, isPaused, pendingPromotion, timeControl.byoSeconds]);
-
-  useEffect(() => {
-    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
-      return;
-    }
-
-    const active = state.turn;
-    const isMainExpired = clockState.main[active] <= 0;
-    const isByoExpired = timeControl.byoSeconds === 0 || clockState.byo[active] <= 0;
-
-    if (!isMainExpired || !isByoExpired) {
-      return;
-    }
-
-    const nextWinner = oppositeColor(active);
-    finishGame(nextWinner, `æ™‚é–“åˆ‡ã‚Œã«ã‚ˆã‚Š${winnerLabel(nextWinner)}ã®å‹ã¡ã§ã™`);
-  }, [screenMode, clockState, gameOver, isPaused, pendingPromotion, state.turn, timeControl.byoSeconds, finishGame]);
+  }, [joinGameId, joinToken, joinName, joinSeat, syncSnapshot]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
@@ -228,7 +236,7 @@ export function App() {
   }, [state]);
 
   const legalTargets = useMemo(() => {
-    if (screenMode !== "game" || !selected || gameOver || isPaused || pendingPromotion || selectedDrop) {
+    if (screenMode !== "game" || !selected || gameOver || isPaused || pendingPromotion || selectedDrop || isSubmittingMove || isSyncingSnapshot) {
       return [];
     }
 
@@ -256,155 +264,161 @@ export function App() {
     }
 
     return targets;
-  }, [screenMode, selected, gameOver, isPaused, pendingPromotion, selectedDrop, state]);
+  }, [screenMode, selected, gameOver, isPaused, pendingPromotion, selectedDrop, isSubmittingMove, isSyncingSnapshot, state]);
 
   const legalTargetKeys = useMemo(() => {
     return new Set(legalTargets.map(positionToKey));
   }, [legalTargets]);
 
-  const applyAndJudge = (move: BoardMove | { drop: PieceKind; to: Position }) => {
-    const result = applyMove(state, move);
-    if (!result.ok) {
-      return;
-    }
+  const appendMoveHistory = useCallback(
+    (move: Move) => {
+      const previousTo = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1].to : null;
+      const text = formatMoveText(state, move, previousTo);
+      const moveNumber = moveHistory.length + 1;
+      setMoveHistory((prev) => [...prev, { id: moveNumber, text, to: move.to }]);
+    },
+    [moveHistory, state],
+  );
 
-    if (pieceSoundRef.current) {
-      pieceSoundRef.current.currentTime = 0;
-      void pieceSoundRef.current.play().catch(() => {});
-    }
-
-    const moveNumber = moveHistory.length + 1;
-    const previousTo = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1].to : null;
-    const text = formatMoveText(state, move, previousTo);
-    setMoveHistory((prev) => [...prev, { id: moveNumber, text, to: move.to }]);
-    setState(result.value);
-    setClockState((current) => ({
-      main: { ...current.main },
-      byo: { ...current.byo, [state.turn]: timeControl.byoSeconds },
-    }));
-
-    const checkingColor = isInCheck(result.value) ? state.turn : null;
-    const nextStateHistory = [...stateHistory, result.value];
-    const nextCheckingHistory = [...checkingHistory, checkingColor];
-    setStateHistory(nextStateHistory);
-    setCheckingHistory(nextCheckingHistory);
-
-    if (isCheckmate(result.value)) {
-      const nextWinner = oppositeColor(result.value.turn);
-      finishGame(nextWinner, `${winnerLabel(nextWinner)}ã®å‹ã¡ã§ã™`);
-      return;
-    }
-
-    const samePositionIndices = findSamePositionIndices(nextStateHistory, result.value);
-    if (samePositionIndices.length >= 4) {
-      const repetitionStartIndex = samePositionIndices[samePositionIndices.length - 4];
-      const repetitionEndIndex = nextStateHistory.length - 1;
-      const foulLoser = findPerpetualCheckLoser(
-        nextStateHistory,
-        nextCheckingHistory,
-        repetitionStartIndex,
-        repetitionEndIndex,
-      );
-
-      if (foulLoser) {
-        const nextWinner = oppositeColor(foulLoser);
-        finishGame(nextWinner, `é€£ç¶šç‹æ‰‹ã®åƒæ—¥æ‰‹ã«ã‚ˆã‚Š${winnerLabel(nextWinner)}ã®å‹ã¡ã§ã™`);
-      } else {
-        finishGame(null, "åƒæ—¥æ‰‹ï¼ˆå¼•ãåˆ†ã‘ï¼‰ã§ã™");
-      }
-    }
-  };
-
-  const onSquareClick = (position: Position) => {
-    if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
-      return;
-    }
-
-    if (selectedDrop) {
-      applyAndJudge({ drop: selectedDrop, to: position });
-      clearSelections();
-      return;
-    }
-
-    const clickedPiece = state.board[position.y][position.x];
-
-    if (!selected) {
-      if (clickedPiece?.color !== state.turn) {
+  const submitMoveByApi = useCallback(
+    async (move: Move) => {
+      if (!session) {
         return;
       }
-      setSelected(position);
-      return;
-    }
 
-    if (clickedPiece?.color === state.turn) {
-      setSelected(position);
-      return;
-    }
+      setIsSubmittingMove(true);
+      setGameMessage(null);
+      try {
+        const updated = await submitMove({
+          gameId: session.gameId,
+          sessionToken: session.sessionToken,
+          expectedVersion: gameVersion,
+          move,
+        });
 
-    const movingPiece = state.board[selected.y][selected.x];
-    if (!movingPiece) {
+        appendMoveHistory(move);
+        if (pieceSoundRef.current) {
+          pieceSoundRef.current.currentTime = 0;
+          void pieceSoundRef.current.play().catch(() => {});
+        }
+        applySnapshot(updated, { showDialog: true });
+      } catch (error) {
+        if (error instanceof ApiClientError && error.code === "VERSION_CONFLICT") {
+          await syncSnapshot(session.gameId, { showDialog: false });
+        }
+        setGameMessage(toGameErrorMessage(error));
+      } finally {
+        setIsSubmittingMove(false);
+      }
+    },
+    [session, gameVersion, appendMoveHistory, applySnapshot, syncSnapshot, toGameErrorMessage],
+  );
+
+  const onSquareClick = useCallback(
+    (position: Position) => {
+      if (screenMode !== "game" || gameOver || isPaused || pendingPromotion || isSubmittingMove || isSyncingSnapshot) {
+        return;
+      }
+
+      if (selectedDrop) {
+        void submitMoveByApi({ drop: selectedDrop, to: position });
+        clearSelections();
+        return;
+      }
+
+      const clickedPiece = state.board[position.y][position.x];
+
+      if (!selected) {
+        if (clickedPiece?.color !== state.turn) {
+          return;
+        }
+        setSelected(position);
+        return;
+      }
+
+      if (clickedPiece?.color === state.turn) {
+        setSelected(position);
+        return;
+      }
+
+      const movingPiece = state.board[selected.y][selected.x];
+      if (!movingPiece) {
+        setSelected(null);
+        return;
+      }
+
+      const move: BoardMove = { from: selected, to: position };
+      if (canChoosePromotion(movingPiece, move) && !shouldAutoPromote(movingPiece, move)) {
+        setPendingPromotion({ move });
+        setSelected(null);
+        return;
+      }
+
+      void submitMoveByApi(move);
       setSelected(null);
-      return;
-    }
+    },
+    [
+      screenMode,
+      gameOver,
+      isPaused,
+      pendingPromotion,
+      isSubmittingMove,
+      isSyncingSnapshot,
+      selectedDrop,
+      clearSelections,
+      state,
+      selected,
+      submitMoveByApi,
+    ],
+  );
 
-    const move: BoardMove = { from: selected, to: position };
-    if (canChoosePromotion(movingPiece, move) && !shouldAutoPromote(movingPiece, move)) {
-      setPendingPromotion({ move });
-      setSelected(null);
-      return;
-    }
+  const onPromotionChoice = useCallback(
+    (promote: boolean) => {
+      if (!pendingPromotion) {
+        return;
+      }
 
-    applyAndJudge(move);
-    setSelected(null);
-  };
+      void submitMoveByApi({ ...pendingPromotion.move, promote });
+      clearSelections();
+    },
+    [pendingPromotion, submitMoveByApi, clearSelections],
+  );
 
-  const onPromotionChoice = (promote: boolean) => {
-    if (!pendingPromotion) {
-      return;
-    }
-
-    applyAndJudge({ ...pendingPromotion.move, promote });
-    clearSelections();
-  };
-
-  const startNewGame = (nextTurn: Color = "black", nextTimeControl: TimeControl = timeControl) => {
-    const baseState = createInitialGameState();
-    const nextInitialState: GameState = {
-      ...baseState,
-      turn: nextTurn,
-    };
-
-    setState(nextInitialState);
-    setClockState(createClockState(nextTimeControl));
-    setStateHistory([nextInitialState]);
-    setCheckingHistory([]);
-    clearSelections();
-    setWinner(null);
-    setResultText(null);
-    setGameOver(false);
-    setIsPaused(false);
-    setShowRestartDialog(false);
-    setMoveHistory([]);
-  };
-
-  const returnToSetup = () => {
+  const returnToSetup = useCallback(() => {
     setScreenMode("setup");
     setShowRestartDialog(false);
-    clearSelections();
     setIsPaused(false);
-  };
+    setGameMessage(null);
+    setSession(null);
+    setMoveHistory([]);
+    clearSelections();
+  }, [clearSelections]);
 
-  const resign = () => {
-    if (screenMode !== "game" || gameOver || isPaused) {
+  const resign = useCallback(async () => {
+    if (screenMode !== "game" || gameOver || isPaused || !session || isSubmittingResign || isSyncingSnapshot) {
       return;
     }
 
-    const loser = state.turn;
-    const nextWinner = oppositeColor(loser);
-    const moveNumber = moveHistory.length + 1;
-    setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(loser)}æŠ•äº†`, to: null }]);
-    finishGame(nextWinner, `${winnerLabel(nextWinner)}ã®å‹ã¡ã§ã™`);
-  };
+    setIsSubmittingResign(true);
+    setGameMessage(null);
+    try {
+      const updated = await resignGame({
+        gameId: session.gameId,
+        sessionToken: session.sessionToken,
+      });
+
+      const moveNumber = moveHistory.length + 1;
+      setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(state.turn)}“Š—¹`, to: null }]);
+      applySnapshot(updated, { showDialog: true });
+    } catch (error) {
+      if (error instanceof ApiClientError && error.code === "GAME_ALREADY_FINISHED") {
+        await syncSnapshot(session.gameId, { showDialog: false });
+      }
+      setGameMessage(toGameErrorMessage(error));
+    } finally {
+      setIsSubmittingResign(false);
+    }
+  }, [screenMode, gameOver, isPaused, session, isSubmittingResign, isSyncingSnapshot, moveHistory.length, state.turn, applySnapshot, syncSnapshot, toGameErrorMessage]);
 
   if (screenMode === "setup") {
     return (
@@ -433,20 +447,45 @@ export function App() {
     );
   }
 
+  const captionText = gameMessage
+    ? gameMessage
+    : gameOver
+      ? `Œ‹‰Ê: ${resultText ?? "I‹Ç"}`
+      : isPaused
+        ? "ˆê’â~’†"
+        : `è”Ô: ${winnerLabel(state.turn)}`;
+
   return (
     <main className="app">
       <h1>Shogi Game</h1>
       {session ? (
         <p className="session-summary">
-          gameId: {session.gameId} / seat: {session.seat} / name: {session.displayName}
+          gameId: {session.gameId} / seat: {session.seat} / name: {session.displayName} / version: {gameVersion}
         </p>
       ) : null}
       <section className="game-actions" aria-label="game actions">
-        <button type="button" className="setup-button" onClick={() => setIsPaused((current) => !current)} disabled={gameOver}>
-          {isPaused ? "å¯¾å±€å†é–‹" : "å¯¾å±€ä¸­æ–­"}
+        <button
+          type="button"
+          className="setup-button"
+          onClick={() => setIsPaused((current) => !current)}
+          disabled={gameOver || isSubmittingMove || isSyncingSnapshot || isSubmittingResign}
+        >
+          {isPaused ? "ÄŠJ" : "ˆê’â~"}
+        </button>
+        <button
+          type="button"
+          className="setup-button"
+          onClick={() => {
+            if (session) {
+              void syncSnapshot(session.gameId, { showDialog: false });
+            }
+          }}
+          disabled={!session || isSyncingSnapshot}
+        >
+          Äæ“¾
         </button>
         <button type="button" className="setup-button" onClick={returnToSetup}>
-          è¨­å®šç”»é¢ã¸æˆ»ã‚‹
+          İ’è‰æ–Ê‚Ö–ß‚é
         </button>
       </section>
       <section className="game-area">
@@ -454,16 +493,16 @@ export function App() {
           <Hand
             hands={state.hands}
             color="white"
-            active={!gameOver && !isPaused && state.turn === "white"}
+            active={!gameOver && !isPaused && !isSubmittingMove && !isSyncingSnapshot && state.turn === "white"}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
           <div className="clock-panel">
-            <p className="clock-title">æŒã¡æ™‚é–“</p>
+            <p className="clock-title">‚¿ŠÔ</p>
             <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
           </div>
           <section className="history-panel" aria-label="move history">
-            <h2>æ£‹è­œ</h2>
+            <h2>Šû•ˆ</h2>
             <ol className="history-list">
               {moveHistory.map((record) => (
                 <li key={record.id}>{record.text}</li>
@@ -482,26 +521,39 @@ export function App() {
 
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
-            <p className="clock-title">æŒã¡æ™‚é–“</p>
+            <p className="clock-title">‚¿ŠÔ</p>
             <p className="clock-main">{formatClockText(clockState.main.black, clockState.byo.black)}</p>
           </div>
           <Hand
             hands={state.hands}
             color="black"
-            active={!gameOver && !isPaused && state.turn === "black"}
+            active={!gameOver && !isPaused && !isSubmittingMove && !isSyncingSnapshot && state.turn === "black"}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
         </div>
       </section>
-      <p className="caption">{gameOver ? `çµ‚å±€: ${resultText}` : isPaused ? "å¯¾å±€ä¸­æ–­ä¸­" : `æ‰‹ç•ª: ${winnerLabel(state.turn)}`}</p>
+      <p className="caption">{captionText}</p>
       <div className="actions">
-        <button type="button" className="resign-button" disabled={gameOver || isPaused} onClick={resign}>
-          æŠ•äº†
+        <button
+          type="button"
+          className="resign-button"
+          disabled={gameOver || isPaused || isSubmittingResign || isSubmittingMove || isSyncingSnapshot}
+          onClick={() => {
+            void resign();
+          }}
+        >
+          {isSubmittingResign ? "“Š—¹’†..." : "“Š—¹"}
         </button>
-        {gameOver && !showRestartDialog ? (
-          <button type="button" className="restart-button" onClick={() => startNewGame()}>
-            å†å¯¾å±€
+        {gameOver && !showRestartDialog && session ? (
+          <button
+            type="button"
+            className="restart-button"
+            onClick={() => {
+              void syncSnapshot(session.gameId, { showDialog: false });
+            }}
+          >
+            ‹Ç–ÊÄæ“¾
           </button>
         ) : null}
       </div>
@@ -510,7 +562,7 @@ export function App() {
       <GameOverDialog
         isOpen={showRestartDialog && gameOver}
         resultText={resultText}
-        onRestart={() => startNewGame()}
+        onRestart={returnToSetup}
         onClose={() => setShowRestartDialog(false)}
       />
     </main>
