@@ -6,13 +6,16 @@ import { createInitialGameState } from "../../core/src/initialPosition";
 import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
 import { findSamePositionIndices } from "../../core/src/repetition";
 import { type BoardMove, type Color, type GameState, type PieceKind, type Position } from "../../core/src/types";
+import { PIECE_SOUND_PATH } from "./assets";
 import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/moveText";
+import { positionToKey } from "./game/position";
 import { findPerpetualCheckLoser } from "./game/repetitionJudge";
 import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, normalizeTimeControl, type ClockState, type TimeControl } from "./game/timeControl";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
 import { Hand } from "./ui/Hand";
 import { PromotionDialog } from "./ui/PromotionDialog";
+import { SetupScreen } from "./ui/SetupScreen";
 
 type PendingPromotion = {
   move: BoardMove;
@@ -53,7 +56,7 @@ export function App() {
   const pieceSoundRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    pieceSoundRef.current = new Audio("/piece-sound.mp3");
+    pieceSoundRef.current = new Audio(PIECE_SOUND_PATH);
     pieceSoundRef.current.preload = "auto";
     return () => {
       if (pieceSoundRef.current) {
@@ -185,6 +188,10 @@ export function App() {
 
     return targets;
   }, [screenMode, selected, gameOver, isPaused, pendingPromotion, selectedDrop, state]);
+
+  const legalTargetKeys = useMemo(() => {
+    return new Set(legalTargets.map(positionToKey));
+  }, [legalTargets]);
 
   const applyAndJudge = (move: BoardMove | { drop: PieceKind; to: Position }) => {
     const result = applyMove(state, move);
@@ -340,63 +347,15 @@ export function App() {
 
   if (screenMode === "setup") {
     return (
-      <main className="app">
-        <h1>Shogi Game</h1>
-        <section className="start-screen" aria-label="match setup">
-          <h2>対局設定</h2>
-          <div className="setup-row">
-            <span className="setup-label">開始手番</span>
-            <div className="setup-options">
-              <button
-                type="button"
-                className={`setup-button ${setupStartingTurn === "black" ? "is-selected" : ""}`.trim()}
-                onClick={() => setSetupStartingTurn("black")}
-              >
-                先手
-              </button>
-              <button
-                type="button"
-                className={`setup-button ${setupStartingTurn === "white" ? "is-selected" : ""}`.trim()}
-                onClick={() => setSetupStartingTurn("white")}
-              >
-                後手
-              </button>
-            </div>
-          </div>
-          <div className="setup-row">
-            <span className="setup-label">持ち時間</span>
-            <div className="setup-input-grid">
-              <label className="setup-input-label" htmlFor="main-minutes-input">
-                持ち時間（分）
-              </label>
-              <input
-                id="main-minutes-input"
-                className="setup-number-input"
-                type="number"
-                min={0}
-                step={1}
-                value={setupMainMinutes}
-                onChange={(event) => onSetupMainMinutesChange(event.target.value)}
-              />
-              <label className="setup-input-label" htmlFor="byo-seconds-input">
-                秒読み（秒）
-              </label>
-              <input
-                id="byo-seconds-input"
-                className="setup-number-input"
-                type="number"
-                min={0}
-                step={10}
-                value={setupByoSeconds}
-                onChange={(event) => onSetupByoSecondsChange(event.target.value)}
-              />
-            </div>
-          </div>
-          <button type="button" className="start-match-button" onClick={startMatchFromSetup}>
-            対局開始
-          </button>
-        </section>
-      </main>
+      <SetupScreen
+        startingTurn={setupStartingTurn}
+        mainMinutes={setupMainMinutes}
+        byoSeconds={setupByoSeconds}
+        onStartingTurnChange={setSetupStartingTurn}
+        onMainMinutesChange={onSetupMainMinutesChange}
+        onByoSecondsChange={onSetupByoSecondsChange}
+        onStart={startMatchFromSetup}
+      />
     );
   }
 
@@ -437,7 +396,7 @@ export function App() {
         <Board
           board={state.board}
           selected={selected}
-          legalTargets={legalTargets}
+          legalTargetKeys={legalTargetKeys}
           checkedKing={checkedKing}
           onSquareClick={onSquareClick}
         />

@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["app/src", "core/src", "core/tests", "bot/src", "app/vite.config.ts"]
+  "include": ["app/src", "core/src", "core/tests", "bot/src", "server/src", "server/tests", "app/vite.config.ts"]
 }

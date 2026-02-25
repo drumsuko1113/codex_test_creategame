@@ -1,11 +1,9 @@
-﻿import { type BoardMove, type BoardState, type Move, type GameState, type Piece } from "./types";
+﻿import { HAND_PIECE_KINDS } from "./constants";
+import { isInsideBoard } from "./board";
+import { type BoardMove, type BoardState, type Move, type GameState, type Piece } from "./types";
 
 function isDropMove(move: Move): move is { to: { x: number; y: number }; drop: Piece["kind"] } {
   return "drop" in move;
-}
-
-function isInsideBoard(x: number, y: number): boolean {
-  return x >= 0 && x < 9 && y >= 0 && y < 9;
 }
 
 function isPathClear(board: BoardState, move: BoardMove): boolean {
@@ -119,8 +117,8 @@ function isPieceMovePatternLegal(state: GameState, piece: Piece, move: BoardMove
 }
 
 function hasUnpromotedPawnInFile(state: GameState, fileX: number): boolean {
-  for (let y = 0; y < 9; y += 1) {
-    const piece = state.board[y][fileX];
+  for (const row of state.board) {
+    const piece = row[fileX];
     if (piece?.kind === "pawn" && piece.color === state.turn && !piece.promoted) {
       return true;
     }
@@ -145,7 +143,7 @@ function isDropLegal(state: GameState, move: Extract<Move, { drop: Piece["kind"]
     return false;
   }
 
-  if (move.drop === "king") {
+  if (!HAND_PIECE_KINDS.includes(move.drop)) {
     return false;
   }
 
