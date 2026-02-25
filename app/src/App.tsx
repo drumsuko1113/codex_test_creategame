@@ -11,6 +11,8 @@ import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/mo
 import { positionToKey } from "./game/position";
 import { findPerpetualCheckLoser } from "./game/repetitionJudge";
 import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, normalizeTimeControl, type ClockState, type TimeControl } from "./game/timeControl";
+import { ApiClientError, createGame, joinGame } from "./online/gameApi";
+import { formatLobbyError, validateCreateGameForm, validateJoinGameForm } from "./online/lobbyValidation";
 import { Board } from "./ui/Board";
 import { GameOverDialog } from "./ui/GameOverDialog";
 import { Hand } from "./ui/Hand";
@@ -29,15 +31,31 @@ type MoveRecord = {
 
 type ScreenMode = "setup" | "game";
 
+type SessionState = {
+  gameId: string;
+  seat: Color;
+  displayName: string;
+  sessionToken: string;
+};
+
 export function App() {
   const initialTimeControl = DEFAULT_TIME_CONTROL;
   const initialState = useMemo(() => createInitialGameState(), []);
 
   const [screenMode, setScreenMode] = useState<ScreenMode>("setup");
-  const [setupStartingTurn, setSetupStartingTurn] = useState<Color>("black");
-  const [setupMainMinutes, setSetupMainMinutes] = useState<number>(Math.floor(initialTimeControl.mainSeconds / 60));
-  const [setupByoSeconds, setSetupByoSeconds] = useState<number>(initialTimeControl.byoSeconds);
-  const [startingTurn, setStartingTurn] = useState<Color>("black");
+  const [createMainMinutes, setCreateMainMinutes] = useState<string>(String(Math.floor(initialTimeControl.mainSeconds / 60)));
+  const [createByoSeconds, setCreateByoSeconds] = useState<string>(String(initialTimeControl.byoSeconds));
+  const [joinGameId, setJoinGameId] = useState<string>("");
+  const [joinToken, setJoinToken] = useState<string>("");
+  const [joinName, setJoinName] = useState<string>("");
+  const [joinSeat, setJoinSeat] = useState<Color>("black");
+  const [createErrors, setCreateErrors] = useState<string[]>([]);
+  const [joinErrors, setJoinErrors] = useState<string[]>([]);
+  const [createMessage, setCreateMessage] = useState<string | null>(null);
+  const [joinMessage, setJoinMessage] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  const [session, setSession] = useState<SessionState | null>(null);
   const [timeControl, setTimeControl] = useState<TimeControl>(initialTimeControl);
 
   const [state, setState] = useState<GameState>(initialState);
@@ -94,19 +112,70 @@ export function App() {
     [gameOver, isPaused, pendingPromotion],
   );
 
-  const onSetupMainMinutesChange = useCallback((value: string) => {
-    const parsed = Number.parseInt(value, 10);
-    setSetupMainMinutes(Number.isNaN(parsed) ? 0 : Math.max(0, parsed));
-  }, []);
-
-  const onSetupByoSecondsChange = useCallback((value: string) => {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) {
-      setSetupByoSeconds(0);
+  const onCreateGame = useCallback(async () => {
+    const validated = validateCreateGameForm({ mainMinutes: createMainMinutes, byoSeconds: createByoSeconds });
+    if (!validated.ok) {
+      setCreateErrors(validated.errors);
+      setCreateMessage(null);
       return;
     }
-    setSetupByoSeconds(Math.max(0, Math.floor(parsed / 10) * 10));
-  }, []);
+
+    setCreateErrors([]);
+    setCreateMessage(null);
+    setIsCreating(true);
+    try {
+      const created = await createGame(validated.value);
+      setJoinGameId(created.gameId);
+      setJoinToken(created.joinToken);
+      setCreateMessage(`対局を作成しました。gameId: ${created.gameId}`);
+      setTimeControl(normalizeTimeControl(validated.value.mainMinutes, validated.value.byoSeconds));
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setCreateMessage(formatLobbyError(error));
+      } else {
+        setCreateMessage("対局作成に失敗しました。時間をおいて再試行してください。");
+      }
+    } finally {
+      setIsCreating(false);
+    }
+  }, [createMainMinutes, createByoSeconds]);
+
+  const onJoinGame = useCallback(async () => {
+    const validated = validateJoinGameForm({
+      gameId: joinGameId,
+      joinToken,
+      name: joinName,
+      seat: joinSeat,
+    });
+    if (!validated.ok) {
+      setJoinErrors(validated.errors);
+      setJoinMessage(null);
+      return;
+    }
+
+    setJoinErrors([]);
+    setJoinMessage(null);
+    setIsJoining(true);
+    try {
+      const joined = await joinGame(validated.value);
+      setSession({
+        gameId: validated.value.gameId,
+        seat: joined.seat,
+        displayName: validated.value.name,
+        sessionToken: joined.sessionToken,
+      });
+      startNewGame("black", timeControl);
+      setScreenMode("game");
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setJoinMessage(formatLobbyError(error));
+      } else {
+        setJoinMessage("対局参加に失敗しました。時間をおいて再試行してください。");
+      }
+    } finally {
+      setIsJoining(false);
+    }
+  }, [joinGameId, joinToken, joinName, joinSeat, timeControl]);
 
   useEffect(() => {
     if (screenMode !== "game" || gameOver || isPaused || pendingPromotion) {
@@ -298,7 +367,7 @@ export function App() {
     clearSelections();
   };
 
-  const startNewGame = (nextTurn: Color = startingTurn, nextTimeControl: TimeControl = timeControl) => {
+  const startNewGame = (nextTurn: Color = "black", nextTimeControl: TimeControl = timeControl) => {
     const baseState = createInitialGameState();
     const nextInitialState: GameState = {
       ...baseState,
@@ -316,14 +385,6 @@ export function App() {
     setIsPaused(false);
     setShowRestartDialog(false);
     setMoveHistory([]);
-  };
-
-  const startMatchFromSetup = () => {
-    const nextTimeControl = normalizeTimeControl(setupMainMinutes, setupByoSeconds);
-    setStartingTurn(setupStartingTurn);
-    setTimeControl(nextTimeControl);
-    startNewGame(setupStartingTurn, nextTimeControl);
-    setScreenMode("game");
   };
 
   const returnToSetup = () => {
@@ -348,13 +409,26 @@ export function App() {
   if (screenMode === "setup") {
     return (
       <SetupScreen
-        startingTurn={setupStartingTurn}
-        mainMinutes={setupMainMinutes}
-        byoSeconds={setupByoSeconds}
-        onStartingTurnChange={setSetupStartingTurn}
-        onMainMinutesChange={onSetupMainMinutesChange}
-        onByoSecondsChange={onSetupByoSecondsChange}
-        onStart={startMatchFromSetup}
+        createMainMinutes={createMainMinutes}
+        createByoSeconds={createByoSeconds}
+        joinGameId={joinGameId}
+        joinToken={joinToken}
+        joinName={joinName}
+        joinSeat={joinSeat}
+        createErrors={createErrors}
+        joinErrors={joinErrors}
+        createMessage={createMessage}
+        joinMessage={joinMessage}
+        isCreating={isCreating}
+        isJoining={isJoining}
+        onCreateMainMinutesChange={setCreateMainMinutes}
+        onCreateByoSecondsChange={setCreateByoSeconds}
+        onJoinGameIdChange={setJoinGameId}
+        onJoinTokenChange={setJoinToken}
+        onJoinNameChange={setJoinName}
+        onJoinSeatChange={setJoinSeat}
+        onCreateSubmit={onCreateGame}
+        onJoinSubmit={onJoinGame}
       />
     );
   }
@@ -362,6 +436,11 @@ export function App() {
   return (
     <main className="app">
       <h1>Shogi Game</h1>
+      {session ? (
+        <p className="session-summary">
+          gameId: {session.gameId} / seat: {session.seat} / name: {session.displayName}
+        </p>
+      ) : null}
       <section className="game-actions" aria-label="game actions">
         <button type="button" className="setup-button" onClick={() => setIsPaused((current) => !current)} disabled={gameOver}>
           {isPaused ? "対局再開" : "対局中断"}
