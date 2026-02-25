@@ -48,6 +48,12 @@ This repository follows a git-flow style workflow.
 3. Keep commits small and feature-focused.
 4. Include branch context in status updates when relevant.
 
+## Reporting Rules (Mandatory)
+
+1. Do not include local absolute paths (e.g. `C:\...`) in implementation summaries, PR descriptions, or PR comments.
+2. Always use repository-relative paths (e.g. `server/src/app.ts`).
+3. When sharing change lists for PR text, provide plain relative file paths only.
+
 ## Approval Policy
 
 1. In this repository, agent approval is not required for `git commit`.
