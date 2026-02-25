@@ -192,8 +192,6 @@ export class InMemoryStore {
       throw new Error("NOT_YOUR_TURN");
     }
 
-    this.applyElapsedClock(game, actor.seat, Date.now());
-
     const result = applyMove(game.state, move);
     if (!result.ok) {
       throw new Error(`ILLEGAL_MOVE:${result.reason}`);

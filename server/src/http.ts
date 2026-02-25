@@ -18,5 +18,9 @@ export async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
     return {} as T;
   }
 
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("INVALID_JSON");
+  }
 }
