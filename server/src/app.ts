@@ -8,7 +8,7 @@ import { RealtimeHub } from "./realtime";
 import { respond, respondError } from "./respond";
 import { ROUTE_JOIN, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
 import { InMemoryStore } from "./store";
-import type { CreateGameInput, JoinGameInput, Player } from "./types";
+import type { Player } from "./types";
 import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput } from "./validators";
 
 const store = new InMemoryStore();
@@ -54,7 +54,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   if (req.method === "POST" && req.url === "/api/games") {
-    const body = await readJsonBody<CreateGameInput>(req);
+    const body = await readJsonBody<unknown>(req);
     if (!isValidCreateGameInput(body)) {
       respondError(res, ctx, 400, "INVALID_CREATE_GAME_PAYLOAD", "Invalid create game payload");
       return;
@@ -69,7 +69,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const joinMatch = req.url?.match(ROUTE_JOIN);
   if (req.method === "POST" && joinMatch) {
     const gameId = joinMatch[1];
-    const body = await readJsonBody<JoinGameInput>(req);
+    const body = await readJsonBody<unknown>(req);
     if (!isValidJoinGameInput(body)) {
       respondError(res, ctx, 400, "INVALID_JOIN_PAYLOAD", "Invalid join payload", { gameId });
       return;
@@ -207,6 +207,10 @@ export function createApp() {
     handleRequest(req, res).catch((error: unknown) => {
       const ctx = makeRequestContext(req);
       const message = getErrorCode(error, "Internal Server Error");
+      if (message === "INVALID_JSON") {
+        respondError(res, ctx, 400, "INVALID_JSON", "Malformed JSON payload");
+        return;
+      }
       log({
         level: "error",
         event: "http.error",

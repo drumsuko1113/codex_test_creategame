@@ -6,18 +6,70 @@ export type MoveRequestBody = {
   expectedVersion: number;
 };
 
-export function isValidCreateGameInput(input: CreateGameInput): boolean {
-  if (!Number.isInteger(input.mainMinutes) || input.mainMinutes <= 0) {
-    return false;
-  }
-  if (!Number.isInteger(input.byoSeconds) || input.byoSeconds < 0) {
-    return false;
-  }
-  return input.byoSeconds === 0 || input.byoSeconds % 10 === 0;
+type JsonRecord = Record<string, unknown>;
+
+const DROP_KINDS = new Set(["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"]);
+
+function isRecord(input: unknown): input is JsonRecord {
+  return !!input && typeof input === "object";
 }
 
-export function isValidJoinGameInput(input: JoinGameInput): boolean {
-  const trimmed = input.name?.trim();
+function isPosition(input: unknown): input is { x: number; y: number } {
+  if (!isRecord(input)) {
+    return false;
+  }
+  return (
+    Number.isInteger(input.x) &&
+    Number.isInteger(input.y) &&
+    (input.x as number) >= 0 &&
+    (input.x as number) <= 8 &&
+    (input.y as number) >= 0 &&
+    (input.y as number) <= 8
+  );
+}
+
+function isMoveShape(input: unknown): input is Move {
+  if (!isRecord(input)) {
+    return false;
+  }
+
+  if ("drop" in input) {
+    return typeof input.drop === "string" && DROP_KINDS.has(input.drop) && isPosition(input.to);
+  }
+
+  if (!isPosition(input.from) || !isPosition(input.to)) {
+    return false;
+  }
+
+  if ("promote" in input && typeof input.promote !== "boolean") {
+    return false;
+  }
+
+  return true;
+}
+
+export function isValidCreateGameInput(input: unknown): input is CreateGameInput {
+  if (!isRecord(input)) {
+    return false;
+  }
+
+  if (!Number.isInteger(input.mainMinutes) || (input.mainMinutes as number) <= 0) {
+    return false;
+  }
+  if (!Number.isInteger(input.byoSeconds) || (input.byoSeconds as number) < 0) {
+    return false;
+  }
+  const byoSeconds = input.byoSeconds as number;
+  return byoSeconds === 0 || byoSeconds % 10 === 0;
+}
+
+export function isValidJoinGameInput(input: unknown): input is JoinGameInput {
+  if (!isRecord(input)) {
+    return false;
+  }
+
+  const name = typeof input.name === "string" ? input.name : "";
+  const trimmed = name.trim();
   if (!trimmed || trimmed.length < 2 || trimmed.length > 20) {
     return false;
   }
@@ -28,9 +80,11 @@ export function isValidJoinGameInput(input: JoinGameInput): boolean {
 }
 
 export function isMoveRequestBody(input: unknown): input is MoveRequestBody {
-  if (!input || typeof input !== "object") {
+  if (!isRecord(input)) {
     return false;
   }
-  const body = input as Record<string, unknown>;
-  return typeof body.expectedVersion === "number" && Number.isInteger(body.expectedVersion) && "move" in body;
+  if (!Number.isInteger(input.expectedVersion) || (input.expectedVersion as number) < 1) {
+    return false;
+  }
+  return isMoveShape(input.move);
 }
