@@ -11,6 +11,8 @@ This repository follows a git-flow style workflow.
 2. `develop`
 - Primary integration branch for ongoing development.
 - All feature branches must be created from `develop`.
+- Direct commits/pushes to `develop` are prohibited.
+- Changes must reach `develop` only via reviewed PR merges from `feature/*` or `fix/*`.
 
 3. `feature/*`
 - Implement one feature per branch.
@@ -24,6 +26,7 @@ This repository follows a git-flow style workflow.
 3. Implement only the scoped feature in that branch.
 4. Open PR from `feature/*` to `develop`.
 5. Merge to `main` only through release process.
+6. Never push commits directly to `develop`.
 
 ## Issue Implementation Protocol (Mandatory)
 
