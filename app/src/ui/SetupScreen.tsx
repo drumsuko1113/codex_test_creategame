@@ -69,31 +69,31 @@ export function SetupScreen({
     <main className="app">
       <h1>Shogi Game</h1>
       <section className="start-screen" aria-label="match setup">
-        <h2>{setupMode === "online" ? "ƒIƒ“ƒ‰ƒCƒ“‘Î‹Ç‚Ìì¬ / Q‰Á" : "Bot‘Îí‚ğŠJn"}</h2>
+        <h2>{setupMode === "online" ? "ã‚ªãƒ³ãƒ©ã‚¤ãƒ³å¯¾å±€ã®ä½œæˆ / å‚åŠ " : "Botå¯¾æˆ¦ã‚’é–‹å§‹"}</h2>
         <div className="setup-options" aria-label="match mode toggle">
           <button
             type="button"
             className={`setup-button ${setupMode === "online" ? "is-selected" : ""}`.trim()}
             onClick={() => onSetupModeChange("online")}
           >
-            ƒIƒ“ƒ‰ƒCƒ“
+            ã‚ªãƒ³ãƒ©ã‚¤ãƒ³
           </button>
           <button
             type="button"
             className={`setup-button ${setupMode === "bot" ? "is-selected" : ""}`.trim()}
             onClick={() => onSetupModeChange("bot")}
           >
-            Bot‘Îí
+            Botå¯¾æˆ¦
           </button>
         </div>
 
         {setupMode === "online" ? (
           <div className="lobby-columns">
             <section className="lobby-card" aria-label="create game form">
-              <h3>‘Î‹Ç‚ğì¬</h3>
+              <h3>å¯¾å±€ã‚’ä½œæˆ</h3>
               <div className="setup-input-grid">
                 <label className="setup-input-label" htmlFor="create-main-minutes-input">
-                  ‚¿ŠÔ (•ª)
+                  æŒã¡æ™‚é–“ (åˆ†)
                 </label>
                 <input
                   id="create-main-minutes-input"
@@ -105,7 +105,7 @@ export function SetupScreen({
                   onChange={(event) => onCreateMainMinutesChange(event.target.value)}
                 />
                 <label className="setup-input-label" htmlFor="create-byo-seconds-input">
-                  •b“Ç‚İ (•b)
+                  ç§’èª­ã¿ (ç§’)
                 </label>
                 <input
                   id="create-byo-seconds-input"
@@ -126,12 +126,12 @@ export function SetupScreen({
               ) : null}
               {createMessage ? <p className="form-message">{createMessage}</p> : null}
               <button type="button" className="start-match-button" onClick={onCreateSubmit} disabled={isCreating}>
-                {isCreating ? "ì¬’†..." : "‘Î‹Ç‚ğì¬"}
+                {isCreating ? "ä½œæˆä¸­..." : "å¯¾å±€ã‚’ä½œæˆ"}
               </button>
             </section>
 
             <section className="lobby-card" aria-label="join game form">
-              <h3>‘Î‹Ç‚ÉQ‰Á</h3>
+              <h3>å¯¾å±€ã«å‚åŠ </h3>
               <div className="setup-input-grid">
                 <label className="setup-input-label" htmlFor="join-game-id-input">
                   gameId
@@ -154,7 +154,7 @@ export function SetupScreen({
                   onChange={(event) => onJoinTokenChange(event.target.value)}
                 />
                 <label className="setup-input-label" htmlFor="join-name-input">
-                  •\¦–¼
+                  è¡¨ç¤ºå
                 </label>
                 <input
                   id="join-name-input"
@@ -163,7 +163,7 @@ export function SetupScreen({
                   value={joinName}
                   onChange={(event) => onJoinNameChange(event.target.value)}
                 />
-                <span className="setup-input-label">È</span>
+                <span className="setup-input-label">å¸­</span>
                 <div className="setup-options">
                   <button
                     type="button"
@@ -190,16 +190,16 @@ export function SetupScreen({
               ) : null}
               {joinMessage ? <p className="form-message">{joinMessage}</p> : null}
               <button type="button" className="start-match-button" onClick={onJoinSubmit} disabled={isJoining}>
-                {isJoining ? "Q‰Á’†..." : "‘Î‹Ç‚ÉQ‰Á"}
+                {isJoining ? "å‚åŠ ä¸­..." : "å¯¾å±€ã«å‚åŠ "}
               </button>
             </section>
           </div>
         ) : (
           <section className="lobby-card" aria-label="bot game form">
-            <h3>lŠÔ vs Bot</h3>
+            <h3>äººé–“ vs Bot</h3>
             <div className="setup-input-grid">
               <label className="setup-input-label" htmlFor="bot-name-input">
-                •\¦–¼
+                è¡¨ç¤ºå
               </label>
               <input
                 id="bot-name-input"
@@ -208,7 +208,7 @@ export function SetupScreen({
                 value={botName}
                 onChange={(event) => onBotNameChange(event.target.value)}
               />
-              <span className="setup-input-label">‚ ‚È‚½‚ÌÈ</span>
+              <span className="setup-input-label">ã‚ãªãŸã®å¸­</span>
               <div className="setup-options">
                 <button
                   type="button"
@@ -228,7 +228,7 @@ export function SetupScreen({
             </div>
             {botMessage ? <p className="form-message">{botMessage}</p> : null}
             <button type="button" className="start-match-button" onClick={onBotStart} disabled={isStartingBot}>
-              {isStartingBot ? "ŠJn’†..." : "Bot‘Îí‚ğŠJn"}
+              {isStartingBot ? "é–‹å§‹ä¸­..." : "Botå¯¾æˆ¦ã‚’é–‹å§‹"}
             </button>
           </section>
         )}

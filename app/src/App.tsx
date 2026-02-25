@@ -140,8 +140,8 @@ export function App() {
     }
 
     const message = typeof navigator !== "undefined" && !navigator.onLine
-      ? "ƒIƒtƒ‰ƒCƒ“‚Å‚·Bƒlƒbƒgƒ[ƒN•œ‹AŒã‚ÉÄs‚µ‚Ä‚­‚¾‚³‚¢B"
-      : "’ÊM‚É¸”s‚µ‚Ü‚µ‚½BÄs‚µ‚Ä‚­‚¾‚³‚¢B";
+      ? "ã‚ªãƒ•ãƒ©ã‚¤ãƒ³ã§ã™ã€‚ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯å¾©å¸°å¾Œã«å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚"
+      : "é€šä¿¡ã«å¤±æ•—ã—ã¾ã—ãŸã€‚å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚";
     setNetworkBannerMessage(message);
   }, []);
 
@@ -189,16 +189,16 @@ export function App() {
 
   const toGameErrorMessage = useCallback((error: unknown): string => {
     if (!(error instanceof ApiClientError)) {
-      return "‘Î‹Ç‘€ì‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B";
+      return "å¯¾å±€æ“ä½œã«å¤±æ•—ã—ã¾ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚";
     }
 
     const byCode: Record<string, string> = {
-      VERSION_CONFLICT: "‘¼ƒvƒŒƒCƒ„[‚Ì’…è‚ªæ‚É”½‰f‚³‚ê‚Ü‚µ‚½B‹Ç–Ê‚ğÄæ“¾‚µ‚Ü‚·B",
-      GAME_NOT_ACTIVE: "‘Î‹Ç‚ªŠJn‚µ‚Ä‚¢‚È‚¢‚½‚ß’…è‚Å‚«‚Ü‚¹‚ñB",
-      NOT_YOUR_TURN: "Œ»İ‚Í‚ ‚È‚½‚Ìè”Ô‚Å‚Í‚ ‚è‚Ü‚¹‚ñB",
-      GAME_ALREADY_FINISHED: "‘Î‹Ç‚Í‚·‚Å‚ÉI—¹‚µ‚Ä‚¢‚Ü‚·B",
-      ILLEGAL_MOVE: "•s³‚È’…è‚Å‚·B“ü—Í“à—e‚ğŠm”F‚µ‚Ä‚­‚¾‚³‚¢B",
-      UNAUTHORIZED: "ƒZƒbƒVƒ‡ƒ“‚ª–³Œø‚Å‚·B‘Î‹Ç‚Ö‚ÌQ‰Á‚ğ‚â‚è’¼‚µ‚Ä‚­‚¾‚³‚¢B",
+      VERSION_CONFLICT: "ä»–ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼ã®ç€æ‰‹ãŒå…ˆã«åæ˜ ã•ã‚Œã¾ã—ãŸã€‚å±€é¢ã‚’å†å–å¾—ã—ã¾ã™ã€‚",
+      GAME_NOT_ACTIVE: "å¯¾å±€ãŒé–‹å§‹ã—ã¦ã„ãªã„ãŸã‚ç€æ‰‹ã§ãã¾ã›ã‚“ã€‚",
+      NOT_YOUR_TURN: "ç¾åœ¨ã¯ã‚ãªãŸã®æ‰‹ç•ªã§ã¯ã‚ã‚Šã¾ã›ã‚“ã€‚",
+      GAME_ALREADY_FINISHED: "å¯¾å±€ã¯ã™ã§ã«çµ‚äº†ã—ã¦ã„ã¾ã™ã€‚",
+      ILLEGAL_MOVE: "ä¸æ­£ãªç€æ‰‹ã§ã™ã€‚å…¥åŠ›å†…å®¹ã‚’ç¢ºèªã—ã¦ãã ã•ã„ã€‚",
+      UNAUTHORIZED: "ã‚»ãƒƒã‚·ãƒ§ãƒ³ãŒç„¡åŠ¹ã§ã™ã€‚å¯¾å±€ã¸ã®å‚åŠ ã‚’ã‚„ã‚Šç›´ã—ã¦ãã ã•ã„ã€‚",
     };
 
     if (error.code in byCode) {
@@ -259,7 +259,7 @@ export function App() {
       setJoinGameId(stored.gameId);
       setJoinName(stored.displayName);
       setJoinSeat(stored.seat);
-      setJoinMessage("‘O‰ñ‘Î‹Ç‚ğ•œŒ³’†‚Å‚·...");
+      setJoinMessage("å‰å›å¯¾å±€ã‚’å¾©å…ƒä¸­ã§ã™...");
 
       try {
         const player = await getSessionPlayer({
@@ -306,9 +306,9 @@ export function App() {
         setScreenMode("setup");
 
         if (error instanceof ApiClientError && (error.code === "UNAUTHORIZED" || error.code === "GAME_NOT_FOUND")) {
-          setJoinMessage("•Û‘¶‚³‚ê‚½ƒZƒbƒVƒ‡ƒ“‚Í–³Œø‚Å‚·BÄQ‰Á‚µ‚Ä‚­‚¾‚³‚¢B");
+          setJoinMessage("ä¿å­˜ã•ã‚ŒãŸã‚»ãƒƒã‚·ãƒ§ãƒ³ã¯ç„¡åŠ¹ã§ã™ã€‚å†å‚åŠ ã—ã¦ãã ã•ã„ã€‚");
         } else {
-          setJoinMessage("‘O‰ñ‘Î‹Ç‚Ì•œŒ³‚É¸”s‚µ‚Ü‚µ‚½BÄQ‰Á‚µ‚Ä‚­‚¾‚³‚¢B");
+          setJoinMessage("å‰å›å¯¾å±€ã®å¾©å…ƒã«å¤±æ•—ã—ã¾ã—ãŸã€‚å†å‚åŠ ã—ã¦ãã ã•ã„ã€‚");
         }
       } finally {
         if (!disposed) {
@@ -339,7 +339,7 @@ export function App() {
       const created = await createGame(validated.value);
       setJoinGameId(created.gameId);
       setJoinToken(created.joinToken);
-      setCreateMessage(`‘Î‹Ç‚ğì¬‚µ‚Ü‚µ‚½BgameId: ${created.gameId}`);
+      setCreateMessage(`å¯¾å±€ã‚’ä½œæˆã—ã¾ã—ãŸã€‚gameId: ${created.gameId}`);
       setTimeControl(normalizeTimeControl(validated.value.mainMinutes, validated.value.byoSeconds));
       setNetworkBannerMessage(null);
     } catch (error) {
@@ -347,7 +347,7 @@ export function App() {
       if (error instanceof ApiClientError) {
         setCreateMessage(formatLobbyError(error));
       } else {
-        setCreateMessage("‘Î‹Çì¬‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B");
+        setCreateMessage("å¯¾å±€ä½œæˆã«å¤±æ•—ã—ã¾ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚");
       }
     } finally {
       setIsCreating(false);
@@ -390,7 +390,7 @@ export function App() {
       if (error instanceof ApiClientError) {
         setJoinMessage(formatLobbyError(error));
       } else {
-        setJoinMessage("‘Î‹ÇQ‰Á‚É¸”s‚µ‚Ü‚µ‚½BŠÔ‚ğ‚¨‚¢‚ÄÄs‚µ‚Ä‚­‚¾‚³‚¢B");
+        setJoinMessage("å¯¾å±€å‚åŠ ã«å¤±æ•—ã—ã¾ã—ãŸã€‚æ™‚é–“ã‚’ãŠã„ã¦å†è©¦è¡Œã—ã¦ãã ã•ã„ã€‚");
       }
     } finally {
       setIsJoining(false);
@@ -506,13 +506,13 @@ export function App() {
 
     const handleOffline = () => {
       setIsOffline(true);
-      setNetworkBannerMessage("ƒIƒtƒ‰ƒCƒ“‚Å‚·Bƒlƒbƒgƒ[ƒN•œ‹A‚ğ‘Ò‹@‚µ‚Ä‚¢‚Ü‚·B");
+      setNetworkBannerMessage("ã‚ªãƒ•ãƒ©ã‚¤ãƒ³ã§ã™ã€‚ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯å¾©å¸°ã‚’å¾…æ©Ÿã—ã¦ã„ã¾ã™ã€‚");
     };
 
     const handleOnline = () => {
       setIsOffline(false);
       pollingFailureCountRef.current = 0;
-      setNetworkBannerMessage("ƒlƒbƒgƒ[ƒN‚ÉÄÚ‘±‚µ‚Ü‚µ‚½B“¯Šú‚ğÄs‚µ‚Ü‚·B");
+      setNetworkBannerMessage("ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯ã«å†æ¥ç¶šã—ã¾ã—ãŸã€‚åŒæœŸã‚’å†è©¦è¡Œã—ã¾ã™ã€‚");
 
       if (screenMode === "game" && session && !gameOver) {
         void syncSnapshot(session.gameId, { showDialog: false, suppressError: true }).then((synced) => {
@@ -863,7 +863,7 @@ export function App() {
 
       if (matchMode === "bot") {
         const outcome = getBotResignOutcome(botSeat);
-        setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(botSeat)}“Š—¹`, to: null }]);
+        setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(botSeat)}æŠ•äº†`, to: null }]);
         setWinner(outcome.winner);
         setResultText(outcome.resultText);
         setGameOver(true);
@@ -880,7 +880,7 @@ export function App() {
         sessionToken: session.sessionToken,
       });
 
-      setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(state.turn)}“Š—¹`, to: null }]);
+      setMoveHistory((prev) => [...prev, { id: moveNumber, text: `${sideLabel(state.turn)}æŠ•äº†`, to: null }]);
       applySnapshot(updated, { showDialog: true });
       setNetworkBannerMessage(null);
     } catch (error) {
@@ -954,10 +954,10 @@ export function App() {
   const captionText = gameMessage
     ? gameMessage
     : gameOver
-      ? `Œ‹‰Ê: ${resultText ?? "I‹Ç"}`
+      ? `çµæœ: ${resultText ?? "çµ‚å±€"}`
       : isPaused
-        ? "ˆê’â~’†"
-        : `è”Ô: ${winnerLabel(state.turn)}`;
+        ? "ä¸€æ™‚åœæ­¢ä¸­"
+        : `æ‰‹ç•ª: ${winnerLabel(state.turn)}`;
 
   return (
     <main className="app">
@@ -980,7 +980,7 @@ export function App() {
             }}
             disabled={matchMode !== "online" || !session || isSyncingSnapshot}
           >
-            Äs
+            å†è©¦è¡Œ
           </button>
         </section>
       ) : null}
@@ -991,7 +991,7 @@ export function App() {
           onClick={() => setIsPaused((current) => !current)}
           disabled={gameOver || isSubmittingMove || isSyncingSnapshot || isSubmittingResign}
         >
-          {isPaused ? "ÄŠJ" : "ˆê’â~"}
+          {isPaused ? "å†é–‹" : "ä¸€æ™‚åœæ­¢"}
         </button>
         {matchMode === "online" ? (
           <button
@@ -1002,11 +1002,11 @@ export function App() {
             }}
             disabled={!session || isSyncingSnapshot}
           >
-            Äæ“¾
+            å†å–å¾—
           </button>
         ) : null}
         <button type="button" className="setup-button" onClick={returnToSetup}>
-          İ’è‰æ–Ê‚Ö–ß‚é
+          è¨­å®šç”»é¢ã¸æˆ»ã‚‹
         </button>
       </section>
       {turnLockMessage && !gameMessage ? <p className="turn-lock-message">{turnLockMessage}</p> : null}
@@ -1020,11 +1020,11 @@ export function App() {
             onSelectDrop={toggleDropSelection}
           />
           <div className="clock-panel">
-            <p className="clock-title">‚¿ŠÔ</p>
+            <p className="clock-title">æŒã¡æ™‚é–“</p>
             <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
           </div>
           <section className="history-panel" aria-label="move history">
-            <h2>Šû•ˆ</h2>
+            <h2>æ£‹è­œ</h2>
             <ol className="history-list">
               {moveHistory.map((record) => (
                 <li key={record.id}>{record.text}</li>
@@ -1044,7 +1044,7 @@ export function App() {
 
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
-            <p className="clock-title">‚¿ŠÔ</p>
+            <p className="clock-title">æŒã¡æ™‚é–“</p>
             <p className="clock-main">{formatClockText(clockState.main.black, clockState.byo.black)}</p>
           </div>
           <Hand
@@ -1066,7 +1066,7 @@ export function App() {
             void resign();
           }}
         >
-          {isSubmittingResign ? "“Š—¹’†..." : "“Š—¹"}
+          {isSubmittingResign ? "æŠ•äº†ä¸­..." : "æŠ•äº†"}
         </button>
         {matchMode === "online" && gameOver && !showRestartDialog && session ? (
           <button
@@ -1076,7 +1076,7 @@ export function App() {
               void retrySync();
             }}
           >
-            ‹Ç–ÊÄæ“¾
+            å±€é¢å†å–å¾—
           </button>
         ) : null}
       </div>
