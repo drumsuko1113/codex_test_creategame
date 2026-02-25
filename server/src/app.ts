@@ -15,9 +15,67 @@ type AppOptions = {
   store?: GameStore;
 };
 
+type ErrorRule = {
+  match: (code: string) => boolean;
+  statusCode: number;
+  message: string | ((code: string) => string);
+  responseCode?: string;
+};
+
 function getErrorCode(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
+
+function exactCode(code: string): (value: string) => boolean {
+  return (value) => value === code;
+}
+
+function prefixCode(prefix: string): (value: string) => boolean {
+  return (value) => value.startsWith(prefix);
+}
+
+function respondIfMappedError(
+  res: ServerResponse,
+  ctx: ReturnType<typeof makeRequestContext>,
+  code: string,
+  meta: { gameId: string; guestId?: string },
+  rules: readonly ErrorRule[],
+): boolean {
+  const matched = rules.find((rule) => rule.match(code));
+  if (!matched) {
+    return false;
+  }
+
+  respondError(
+    res,
+    ctx,
+    matched.statusCode,
+    matched.responseCode ?? code,
+    typeof matched.message === "function" ? matched.message(code) : matched.message,
+    { gameId: meta.gameId, guestId: meta.guestId },
+  );
+  return true;
+}
+
+const JOIN_ERROR_RULES: readonly ErrorRule[] = [
+  { match: exactCode("GAME_NOT_FOUND"), statusCode: 404, message: "Game was not found" },
+  { match: exactCode("INVALID_JOIN_TOKEN"), statusCode: 401, message: "Join token is invalid" },
+  { match: exactCode("GAME_IS_FULL"), statusCode: 409, message: "Seat is unavailable" },
+  { match: exactCode("SEAT_ALREADY_TAKEN"), statusCode: 409, message: "Seat is unavailable" },
+];
+
+const MOVE_ERROR_RULES: readonly ErrorRule[] = [
+  { match: exactCode("GAME_NOT_FOUND"), statusCode: 404, message: "Game was not found" },
+  { match: exactCode("GAME_NOT_ACTIVE"), statusCode: 409, message: "Move cannot be applied in current game state" },
+  { match: exactCode("NOT_YOUR_TURN"), statusCode: 409, message: "Move cannot be applied in current game state" },
+  { match: exactCode("VERSION_CONFLICT"), statusCode: 409, message: "Move cannot be applied in current game state" },
+  { match: prefixCode("ILLEGAL_MOVE:"), statusCode: 400, message: (code) => code, responseCode: "ILLEGAL_MOVE" },
+];
+
+const RESIGN_ERROR_RULES: readonly ErrorRule[] = [
+  { match: exactCode("GAME_NOT_FOUND"), statusCode: 404, message: "Game was not found" },
+  { match: exactCode("GAME_ALREADY_FINISHED"), statusCode: 409, message: "Game is already finished" },
+];
 
 async function authenticateActor(
   req: IncomingMessage,
@@ -89,16 +147,7 @@ async function handleRequest(
       return;
     } catch (error) {
       const code = getErrorCode(error, "UNKNOWN");
-      if (code === "GAME_NOT_FOUND") {
-        respondError(res, ctx, 404, code, "Game was not found", { gameId });
-        return;
-      }
-      if (code === "INVALID_JOIN_TOKEN") {
-        respondError(res, ctx, 401, code, "Join token is invalid", { gameId });
-        return;
-      }
-      if (code === "GAME_IS_FULL" || code === "SEAT_ALREADY_TAKEN") {
-        respondError(res, ctx, 409, code, "Seat is unavailable", { gameId });
+      if (respondIfMappedError(res, ctx, code, { gameId }, JOIN_ERROR_RULES)) {
         return;
       }
       throw error;
@@ -186,16 +235,7 @@ async function handleRequest(
       return;
     } catch (error) {
       const code = getErrorCode(error, "UNKNOWN");
-      if (code === "GAME_NOT_FOUND") {
-        respondError(res, ctx, 404, code, "Game was not found", { gameId, guestId: actor.guestId });
-        return;
-      }
-      if (code === "GAME_NOT_ACTIVE" || code === "NOT_YOUR_TURN" || code === "VERSION_CONFLICT") {
-        respondError(res, ctx, 409, code, "Move cannot be applied in current game state", { gameId, guestId: actor.guestId });
-        return;
-      }
-      if (code.startsWith("ILLEGAL_MOVE:")) {
-        respondError(res, ctx, 400, "ILLEGAL_MOVE", code, { gameId, guestId: actor.guestId });
+      if (respondIfMappedError(res, ctx, code, { gameId, guestId: actor.guestId }, MOVE_ERROR_RULES)) {
         return;
       }
       throw error;
@@ -217,12 +257,7 @@ async function handleRequest(
       return;
     } catch (error) {
       const code = getErrorCode(error, "UNKNOWN");
-      if (code === "GAME_NOT_FOUND") {
-        respondError(res, ctx, 404, code, "Game was not found", { gameId, guestId: actor.guestId });
-        return;
-      }
-      if (code === "GAME_ALREADY_FINISHED") {
-        respondError(res, ctx, 409, code, "Game is already finished", { gameId, guestId: actor.guestId });
+      if (respondIfMappedError(res, ctx, code, { gameId, guestId: actor.guestId }, RESIGN_ERROR_RULES)) {
         return;
       }
       throw error;

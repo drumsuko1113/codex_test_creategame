@@ -134,6 +134,38 @@ describe("gameApi", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:3000/api/games/game-1", undefined);
   });
 
+  test("normalizes baseUrl when trailing slash is provided", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          id: "game-1",
+          status: "active",
+          turn: "black",
+          state: { board: [], hands: { black: {}, white: {} }, turn: "black" },
+          mainSecondsBlack: 300,
+          mainSecondsWhite: 300,
+          byoSecondsBlack: 30,
+          byoSecondsWhite: 30,
+          resultType: null,
+          winner: null,
+          version: 2,
+          turnStartedAtMs: 1000,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:10.000Z",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await getGameSnapshot("game-1", "http://127.0.0.1:3000/");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:3000/api/games/game-1", undefined);
+  });
+
   test("submitMove sends expectedVersion and authorization header", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

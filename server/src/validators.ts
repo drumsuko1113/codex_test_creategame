@@ -8,24 +8,32 @@ export type MoveRequestBody = {
 
 type JsonRecord = Record<string, unknown>;
 
+const BOARD_MIN_INDEX = 0;
+const BOARD_MAX_INDEX = 8;
+const MIN_MAIN_MINUTES = 1;
+const MIN_BYO_SECONDS = 0;
+const BYO_SECONDS_STEP = 10;
+const MIN_PLAYER_NAME_LENGTH = 2;
+const MAX_PLAYER_NAME_LENGTH = 20;
+const MIN_JOIN_TOKEN_LENGTH = 16;
+const VALID_SEATS = new Set<JoinGameInput["seat"]>(["black", "white"]);
 const DROP_KINDS = new Set(["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"]);
 
 function isRecord(input: unknown): input is JsonRecord {
   return !!input && typeof input === "object";
 }
 
+function isIntegerInRange(value: unknown, min: number, max: number): value is number {
+  return Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
+}
+
 function isPosition(input: unknown): input is { x: number; y: number } {
   if (!isRecord(input)) {
     return false;
   }
-  return (
-    Number.isInteger(input.x) &&
-    Number.isInteger(input.y) &&
-    (input.x as number) >= 0 &&
-    (input.x as number) <= 8 &&
-    (input.y as number) >= 0 &&
-    (input.y as number) <= 8
-  );
+
+  return isIntegerInRange(input.x, BOARD_MIN_INDEX, BOARD_MAX_INDEX)
+    && isIntegerInRange(input.y, BOARD_MIN_INDEX, BOARD_MAX_INDEX);
 }
 
 function isMoveShape(input: unknown): input is Move {
@@ -53,14 +61,16 @@ export function isValidCreateGameInput(input: unknown): input is CreateGameInput
     return false;
   }
 
-  if (!Number.isInteger(input.mainMinutes) || (input.mainMinutes as number) <= 0) {
+  if (!isIntegerInRange(input.mainMinutes, MIN_MAIN_MINUTES, Number.MAX_SAFE_INTEGER)) {
     return false;
   }
-  if (!Number.isInteger(input.byoSeconds) || (input.byoSeconds as number) < 0) {
+
+  if (!isIntegerInRange(input.byoSeconds, MIN_BYO_SECONDS, Number.MAX_SAFE_INTEGER)) {
     return false;
   }
+
   const byoSeconds = input.byoSeconds as number;
-  return byoSeconds === 0 || byoSeconds % 10 === 0;
+  return byoSeconds === MIN_BYO_SECONDS || byoSeconds % BYO_SECONDS_STEP === 0;
 }
 
 export function isValidJoinGameInput(input: unknown): input is JoinGameInput {
@@ -70,13 +80,15 @@ export function isValidJoinGameInput(input: unknown): input is JoinGameInput {
 
   const name = typeof input.name === "string" ? input.name : "";
   const trimmed = name.trim();
-  if (!trimmed || trimmed.length < 2 || trimmed.length > 20) {
+  if (!trimmed || trimmed.length < MIN_PLAYER_NAME_LENGTH || trimmed.length > MAX_PLAYER_NAME_LENGTH) {
     return false;
   }
-  if (input.seat !== "black" && input.seat !== "white") {
+
+  if (!VALID_SEATS.has(input.seat as JoinGameInput["seat"])) {
     return false;
   }
-  return typeof input.joinToken === "string" && input.joinToken.length >= 16;
+
+  return typeof input.joinToken === "string" && input.joinToken.length >= MIN_JOIN_TOKEN_LENGTH;
 }
 
 export function isMoveRequestBody(input: unknown): input is MoveRequestBody {
