@@ -9,7 +9,15 @@ import { type BoardMove, type Color, type GameState, type Move, type PieceKind, 
 import { PIECE_SOUND_PATH } from "./assets";
 import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/moveText";
 import { positionToKey } from "./game/position";
-import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, normalizeTimeControl, type ClockState, type TimeControl } from "./game/timeControl";
+import {
+  createClockState,
+  DEFAULT_TIME_CONTROL,
+  formatClockText,
+  normalizeTimeControl,
+  projectClockState,
+  type ClockState,
+  type TimeControl,
+} from "./game/timeControl";
 import { canOperateTurn, getTurnLockMessage } from "./game/turnControl";
 import {
   ApiClientError,
@@ -95,6 +103,8 @@ export function App() {
 
   const [state, setState] = useState<GameState>(initialState);
   const [clockState, setClockState] = useState<ClockState>(() => createClockState(initialTimeControl));
+  const [clockTurnStartedAtMs, setClockTurnStartedAtMs] = useState<number>(() => Date.now());
+  const [clockNowMs, setClockNowMs] = useState<number>(() => Date.now());
   const [gameVersion, setGameVersion] = useState<number>(1);
   const [selected, setSelected] = useState<Position | null>(null);
   const [selectedDrop, setSelectedDrop] = useState<PieceKind | null>(null);
@@ -187,6 +197,8 @@ export function App() {
     (snapshot: GameSnapshot, options: { showDialog?: boolean } = {}) => {
       setState(snapshot.state);
       setClockState(toClockState(snapshot));
+      setClockTurnStartedAtMs(snapshot.turnStartedAtMs);
+      setClockNowMs(Date.now());
       setGameVersion(snapshot.version);
       latestVersionRef.current = snapshot.version;
       setWinner(snapshot.winner);
@@ -468,6 +480,8 @@ export function App() {
       setNetworkBannerMessage(null);
       setState(initialState);
       setClockState(createClockState(initialTimeControl));
+      setClockTurnStartedAtMs(Date.now());
+      setClockNowMs(Date.now());
       setGameVersion(1);
       latestVersionRef.current = 1;
       clearSelections();
@@ -528,6 +542,8 @@ export function App() {
       setScreenMode("game");
       setState(initialState);
       setClockState(createClockState(initialTimeControl));
+      setClockTurnStartedAtMs(Date.now());
+      setClockNowMs(Date.now());
       setGameVersion(1);
       latestVersionRef.current = 1;
       setWinner(null);
@@ -654,6 +670,23 @@ export function App() {
       window.removeEventListener("online", handleOnline);
     };
   }, [matchMode, screenMode, onlineGameId, gameOver, syncSnapshot]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (screenMode !== "game" || matchMode !== "online" || gameOver) {
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      setClockNowMs(Date.now());
+    }, 250);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [screenMode, matchMode, gameOver]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
@@ -972,6 +1005,8 @@ export function App() {
     setGameOver(false);
     setState(initialState);
     setClockState(createClockState(initialTimeControl));
+    setClockTurnStartedAtMs(Date.now());
+    setClockNowMs(Date.now());
     setGameVersion(1);
     latestVersionRef.current = 1;
     replaceSpectateLocation(null);
@@ -1097,6 +1132,14 @@ export function App() {
           ? `観戦中: ${winnerLabel(state.turn)}の手番`
           : `手番: ${winnerLabel(state.turn)}`;
 
+  const displayClockState = useMemo(() => {
+    if (screenMode !== "game" || matchMode !== "online" || gameOver) {
+      return clockState;
+    }
+
+    return projectClockState(clockState, state.turn, clockTurnStartedAtMs, clockNowMs);
+  }, [screenMode, matchMode, gameOver, clockState, state.turn, clockTurnStartedAtMs, clockNowMs]);
+
   return (
     <main className="app">
       <h1>Shogi Game</h1>
@@ -1161,7 +1204,7 @@ export function App() {
           />
           <div className="clock-panel">
             <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
+            <p className="clock-main">{formatClockText(displayClockState.main.white, displayClockState.byo.white)}</p>
           </div>
           <section className="history-panel" aria-label="move history">
             <h2>棋譜</h2>
@@ -1185,7 +1228,7 @@ export function App() {
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
             <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(clockState.main.black, clockState.byo.black)}</p>
+            <p className="clock-main">{formatClockText(displayClockState.main.black, displayClockState.byo.black)}</p>
           </div>
           <Hand
             hands={state.hands}
