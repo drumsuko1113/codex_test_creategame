@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput } from "../src/validators";
+import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput, isValidLobbyMatchInput } from "../src/validators";
 
 describe("validators", () => {
   describe("isValidCreateGameInput", () => {
@@ -96,6 +96,26 @@ describe("validators", () => {
           move: { drop: "king", to: { x: 4, y: 4 } },
         }),
       ).toBe(false);
+    });
+  });
+
+  describe("isValidLobbyMatchInput", () => {
+    test("accepts valid passphrase and name", () => {
+      expect(
+        isValidLobbyMatchInput({
+          passphrase: "Room123",
+          name: "player",
+        }),
+      ).toBe(true);
+    });
+
+    test("rejects invalid passphrase and name", () => {
+      expect(isValidLobbyMatchInput({ passphrase: "", name: "player" })).toBe(false);
+      expect(isValidLobbyMatchInput({ passphrase: "abcdefghi", name: "player" })).toBe(false);
+      expect(isValidLobbyMatchInput({ passphrase: "abc-123", name: "player" })).toBe(false);
+      expect(isValidLobbyMatchInput({ passphrase: "abc123", name: "a" })).toBe(false);
+      expect(isValidLobbyMatchInput({ passphrase: "abc123", name: " ".repeat(3) })).toBe(false);
+      expect(isValidLobbyMatchInput({ passphrase: "abc123", name: "a".repeat(21) })).toBe(false);
     });
   });
 });

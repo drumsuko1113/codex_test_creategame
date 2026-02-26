@@ -8,7 +8,7 @@ import { applyMove } from "../../core/src/applyMove";
 import { createInitialGameState } from "../../core/src/initialPosition";
 import { createSessionToken, hashToken } from "./auth";
 import { issueManagedAuthToken } from "./managedAuth";
-import type { CreateGameInput, Game, JoinGameInput, MoveRecord, Player, Seat } from "./types";
+import type { CreateGameInput, Game, JoinGameInput, LobbyMatchInput, LobbyMatchResult, MoveRecord, Player, Seat } from "./types";
 
 type DbQueryResult<T> = {
   rows: T[];
@@ -94,6 +94,7 @@ export interface GameStore {
     managedToken: string | null;
     seat: Seat;
   }>;
+  matchByPassphrase(input: LobbyMatchInput): Promise<LobbyMatchResult>;
   findPlayerBySessionToken(gameId: string, tokenHash: string): Promise<Player | null>;
   findPlayerByGuestId(gameId: string, guestId: string): Promise<Player | null>;
   getGame(gameId: string): Promise<Game | null>;
@@ -102,6 +103,9 @@ export interface GameStore {
   getMoves(gameId: string): Promise<MoveRecord[]>;
   close?(): Promise<void>;
 }
+
+const DEFAULT_MATCH_MAIN_MINUTES = 10;
+const DEFAULT_MATCH_BYO_SECONDS = 30;
 
 function toIsoNow(): string {
   return new Date().toISOString();
@@ -134,6 +138,16 @@ function splitSqlStatements(script: string): string[] {
 
 function createJoinToken(): string {
   return randomUUID().replaceAll("-", "");
+}
+
+function pickAvailableSeat(seats: readonly Seat[]): Seat | null {
+  if (!seats.includes("black")) {
+    return "black";
+  }
+  if (!seats.includes("white")) {
+    return "white";
+  }
+  return null;
 }
 
 function oppositeSeat(seat: Seat): Seat {
@@ -266,6 +280,7 @@ export class InMemoryStore implements GameStore {
   private readonly joinTokens = new Map<string, string>();
   private readonly playersByGame = new Map<string, Player[]>();
   private readonly movesByGame = new Map<string, MoveRecord[]>();
+  private readonly passphrasesByGame = new Map<string, string>();
 
   private settleTimeoutIfNeeded(game: Game): void {
     const snapshot: PersistedGame = {
@@ -383,6 +398,70 @@ export class InMemoryStore implements GameStore {
       sessionToken,
       managedToken: issueManagedAuthToken(guestId),
       seat: input.seat,
+    };
+  }
+
+  async matchByPassphrase(input: LobbyMatchInput): Promise<LobbyMatchResult> {
+    const passphrase = input.passphrase.trim();
+    const normalizedName = input.name.trim();
+
+    let targetGameId: string | null = null;
+    for (const [gameId, gamePassphrase] of this.passphrasesByGame.entries()) {
+      const game = this.games.get(gameId);
+      if (!game || game.status !== "waiting" || gamePassphrase !== passphrase) {
+        continue;
+      }
+      targetGameId = gameId;
+      break;
+    }
+
+    if (!targetGameId) {
+      const created = await this.createGame({
+        mainMinutes: DEFAULT_MATCH_MAIN_MINUTES,
+        byoSeconds: DEFAULT_MATCH_BYO_SECONDS,
+      });
+      targetGameId = created.gameId;
+      this.passphrasesByGame.set(targetGameId, passphrase);
+    }
+
+    const players = this.playersByGame.get(targetGameId);
+    const seat = pickAvailableSeat(players?.map((player) => player.seat) ?? []);
+    if (!seat) {
+      const created = await this.createGame({
+        mainMinutes: DEFAULT_MATCH_MAIN_MINUTES,
+        byoSeconds: DEFAULT_MATCH_BYO_SECONDS,
+      });
+      targetGameId = created.gameId;
+      this.passphrasesByGame.set(targetGameId, passphrase);
+    }
+
+    if (!targetGameId) {
+      throw new Error("GAME_NOT_FOUND");
+    }
+
+    const targetJoinToken = this.joinTokens.get(targetGameId);
+    if (!targetJoinToken) {
+      throw new Error("GAME_NOT_FOUND");
+    }
+
+    const reloadedPlayers = this.playersByGame.get(targetGameId) ?? [];
+    const resolvedSeat = pickAvailableSeat(reloadedPlayers.map((player) => player.seat));
+    if (!resolvedSeat) {
+      throw new Error("GAME_IS_FULL");
+    }
+
+    const joined = await this.joinGame(targetGameId, {
+      name: normalizedName,
+      seat: resolvedSeat,
+      joinToken: targetJoinToken,
+    });
+
+    return {
+      gameId: targetGameId,
+      guestId: joined.guestId,
+      sessionToken: joined.sessionToken,
+      managedToken: joined.managedToken,
+      seat: joined.seat,
     };
   }
 
@@ -558,6 +637,95 @@ export class PostgresStore implements GameStore {
     return mapGameRow(result.rows[0]);
   }
 
+  private async lockWaitingGameByPassphrase(client: Queryable, passphraseHash: string): Promise<PersistedGame | null> {
+    const result = await client.query<GameRow>(
+      `SELECT
+         id,
+         status,
+         turn,
+         state_json,
+         main_seconds_black,
+         main_seconds_white,
+         byo_seconds_black,
+         byo_seconds_white,
+         result_type,
+         winner,
+         version,
+         turn_started_at_ms,
+         created_at,
+         updated_at,
+         join_token_hash
+       FROM games
+       WHERE status = 'waiting' AND join_token_hash = $1
+       ORDER BY created_at ASC
+       LIMIT 1
+       FOR UPDATE`,
+      [passphraseHash],
+    );
+
+    if (!result.rowCount) {
+      return null;
+    }
+
+    return mapGameRow(result.rows[0]);
+  }
+
+  private async createMatchGame(client: Queryable, passphraseHash: string): Promise<PersistedGame> {
+    const gameId = randomUUID();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const mainSeconds = DEFAULT_MATCH_MAIN_MINUTES * 60;
+
+    await client.query(
+      `INSERT INTO games (
+         id,
+         status,
+         turn,
+         state_json,
+         main_seconds_black,
+         main_seconds_white,
+         byo_seconds_black,
+         byo_seconds_white,
+         result_type,
+         winner,
+         version,
+         join_token_hash,
+         turn_started_at_ms,
+         created_at,
+         updated_at
+       ) VALUES (
+         $1, 'waiting', 'black', $2::jsonb, $3, $3, $4, $4, NULL, NULL, 1, $5, $6, $7, $7
+       )`,
+      [
+        gameId,
+        JSON.stringify(createInitialGameState()),
+        mainSeconds,
+        DEFAULT_MATCH_BYO_SECONDS,
+        passphraseHash,
+        nowMs,
+        nowIso,
+      ],
+    );
+
+    return {
+      id: gameId,
+      status: "waiting",
+      turn: "black",
+      state: createInitialGameState(),
+      mainSecondsBlack: mainSeconds,
+      mainSecondsWhite: mainSeconds,
+      byoSecondsBlack: DEFAULT_MATCH_BYO_SECONDS,
+      byoSecondsWhite: DEFAULT_MATCH_BYO_SECONDS,
+      resultType: null,
+      winner: null,
+      version: 1,
+      turnStartedAtMs: nowMs,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      joinTokenHash: passphraseHash,
+    };
+  }
+
   private async updateGame(client: Queryable, game: PersistedGame, previousVersion: number): Promise<void> {
     const result = await client.query(
       `UPDATE games
@@ -704,6 +872,69 @@ export class PostgresStore implements GameStore {
         sessionToken,
         managedToken: issueManagedAuthToken(guestId),
         seat: input.seat,
+      };
+    });
+  }
+
+  async matchByPassphrase(input: LobbyMatchInput): Promise<LobbyMatchResult> {
+    const passphraseHash = hashToken(input.passphrase.trim());
+    const normalizedName = input.name.trim();
+
+    return this.withTransaction(async (client) => {
+      let game = await this.lockWaitingGameByPassphrase(client, passphraseHash);
+      if (!game) {
+        game = await this.createMatchGame(client, passphraseHash);
+      }
+
+      let playersResult = await client.query<{ seat: Seat }>(
+        `SELECT seat
+         FROM game_players
+         WHERE game_id = $1
+         FOR UPDATE`,
+        [game.id],
+      );
+
+      let seat = pickAvailableSeat(playersResult.rows.map((row) => row.seat));
+      if (!seat) {
+        game = await this.createMatchGame(client, passphraseHash);
+        playersResult = { rows: [], rowCount: 0 };
+        seat = "black";
+      }
+
+      const sessionToken = createSessionToken();
+      const guestId = randomUUID();
+      const joinedAt = toIsoNow();
+
+      await client.query(
+        `INSERT INTO game_players (
+           id,
+           game_id,
+           seat,
+           guest_id,
+           display_name,
+           session_token_hash,
+           joined_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [randomUUID(), game.id, seat, guestId, normalizedName, hashToken(sessionToken), joinedAt],
+      );
+
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      game.status = playersResult.rows.length + 1 === 2 ? "active" : "waiting";
+      game.updatedAt = nowIso;
+      game.version += 1;
+      if (game.status === "active") {
+        game.turnStartedAtMs = nowMs;
+      }
+
+      await this.updateGame(client, game, game.version - 1);
+
+      return {
+        gameId: game.id,
+        guestId,
+        sessionToken,
+        managedToken: issueManagedAuthToken(guestId),
+        seat,
       };
     });
   }

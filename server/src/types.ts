@@ -43,6 +43,19 @@ export type JoinGameInput = {
   joinToken: string;
 };
 
+export type LobbyMatchInput = {
+  passphrase: string;
+  name: string;
+};
+
+export type LobbyMatchResult = {
+  gameId: string;
+  guestId: string;
+  sessionToken: string;
+  managedToken: string | null;
+  seat: Seat;
+};
+
 export type MoveRecord = {
   ply: number;
   actorSeat: Seat;

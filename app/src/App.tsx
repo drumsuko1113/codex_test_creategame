@@ -9,20 +9,19 @@ import { type BoardMove, type Color, type GameState, type Move, type PieceKind, 
 import { PIECE_SOUND_PATH } from "./assets";
 import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/moveText";
 import { positionToKey } from "./game/position";
-import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, normalizeTimeControl, type ClockState, type TimeControl } from "./game/timeControl";
+import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, type ClockState } from "./game/timeControl";
 import { canOperateTurn, getTurnLockMessage } from "./game/turnControl";
 import {
   ApiClientError,
-  createGame,
   getGameSnapshot,
   getSessionPlayer,
-  joinGame,
+  matchLobby,
   resignGame,
   submitMove,
   type GameSnapshot,
 } from "./online/gameApi";
 import { buildResultText, toClockState } from "./online/gameSnapshot";
-import { formatLobbyError, validateCreateGameForm, validateJoinGameForm, validateSpectateGameForm } from "./online/lobbyValidation";
+import { formatLobbyError, validateMatchLobbyForm, validateSpectateGameForm } from "./online/lobbyValidation";
 import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
 import { computePollingRetryDelayMs, isRetryableNetworkError } from "./online/networkRecovery";
 import { clearStoredSession, loadStoredSession, saveStoredSession } from "./online/sessionPersistence";
@@ -68,30 +67,22 @@ export function App() {
   const [screenMode, setScreenMode] = useState<ScreenMode>("setup");
   const [setupMode, setSetupMode] = useState<MatchMode>("online");
   const [matchMode, setMatchMode] = useState<MatchMode>("online");
-  const [createMainMinutes, setCreateMainMinutes] = useState<string>(String(Math.floor(initialTimeControl.mainSeconds / 60)));
-  const [createByoSeconds, setCreateByoSeconds] = useState<string>(String(initialTimeControl.byoSeconds));
-  const [joinGameId, setJoinGameId] = useState<string>("");
+  const [passphrase, setPassphrase] = useState<string>("");
   const [spectateGameId, setSpectateGameId] = useState<string>(initialSpectateGameId ?? "");
-  const [joinToken, setJoinToken] = useState<string>("");
   const [joinName, setJoinName] = useState<string>("");
-  const [joinSeat, setJoinSeat] = useState<Color>("black");
   const [botName, setBotName] = useState<string>("player");
   const [botSeat, setBotSeat] = useState<Color>("black");
-  const [createErrors, setCreateErrors] = useState<string[]>([]);
   const [joinErrors, setJoinErrors] = useState<string[]>([]);
   const [spectateErrors, setSpectateErrors] = useState<string[]>([]);
-  const [createMessage, setCreateMessage] = useState<string | null>(null);
   const [joinMessage, setJoinMessage] = useState<string | null>(null);
   const [spectateMessage, setSpectateMessage] = useState<string | null>(null);
   const [botMessage, setBotMessage] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [isStartingSpectate, setIsStartingSpectate] = useState(false);
   const [isStartingBot, setIsStartingBot] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
   const [spectatorGameId, setSpectatorGameId] = useState<string | null>(null);
-  const [timeControl, setTimeControl] = useState<TimeControl>(initialTimeControl);
 
   const [state, setState] = useState<GameState>(initialState);
   const [clockState, setClockState] = useState<ClockState>(() => createClockState(initialTimeControl));
@@ -140,10 +131,8 @@ export function App() {
 
   const onSetupModeChange = useCallback((mode: MatchMode) => {
     setSetupMode(mode);
-    setCreateErrors([]);
     setJoinErrors([]);
     setSpectateErrors([]);
-    setCreateMessage(null);
     setJoinMessage(null);
     setSpectateMessage(null);
     setBotMessage(null);
@@ -165,12 +154,12 @@ export function App() {
       return null;
     }
 
-    const sourceGameId = joinGameId.trim() || spectateGameId.trim();
+    const sourceGameId = spectateGameId.trim();
     if (!sourceGameId) {
       return null;
     }
     return buildSpectatorUrl(window.location.origin, window.location.pathname, sourceGameId);
-  }, [joinGameId, spectateGameId]);
+  }, [spectateGameId]);
 
   const setNetworkBannerFromError = useCallback((error: unknown) => {
     if (!isRetryableNetworkError(error)) {
@@ -300,9 +289,7 @@ export function App() {
       }
 
       setIsRestoringSession(true);
-      setJoinGameId(stored.gameId);
       setJoinName(stored.displayName);
-      setJoinSeat(stored.seat);
       setJoinMessage("前回対局を復元中です...");
 
       try {
@@ -372,42 +359,10 @@ export function App() {
     };
   }, [initialSpectateGameId, replaceSpectateLocation, syncSnapshot]);
 
-  const onCreateGame = useCallback(async () => {
-    const validated = validateCreateGameForm({ mainMinutes: createMainMinutes, byoSeconds: createByoSeconds });
-    if (!validated.ok) {
-      setCreateErrors(validated.errors);
-      setCreateMessage(null);
-      return;
-    }
-
-    setCreateErrors([]);
-    setCreateMessage(null);
-    setIsCreating(true);
-    try {
-      const created = await createGame(validated.value);
-      setJoinGameId(created.gameId);
-      setJoinToken(created.joinToken);
-      setCreateMessage(`対局を作成しました。gameId: ${created.gameId}`);
-      setTimeControl(normalizeTimeControl(validated.value.mainMinutes, validated.value.byoSeconds));
-      setNetworkBannerMessage(null);
-    } catch (error) {
-      setNetworkBannerFromError(error);
-      if (error instanceof ApiClientError) {
-        setCreateMessage(formatLobbyError(error));
-      } else {
-        setCreateMessage("対局作成に失敗しました。時間をおいて再試行してください。");
-      }
-    } finally {
-      setIsCreating(false);
-    }
-  }, [createMainMinutes, createByoSeconds, setNetworkBannerFromError]);
-
   const onJoinGame = useCallback(async () => {
-    const validated = validateJoinGameForm({
-      gameId: joinGameId,
-      joinToken,
+    const validated = validateMatchLobbyForm({
+      passphrase,
       name: joinName,
-      seat: joinSeat,
     });
     if (!validated.ok) {
       setJoinErrors(validated.errors);
@@ -419,9 +374,9 @@ export function App() {
     setJoinMessage(null);
     setIsJoining(true);
     try {
-      const joined = await joinGame(validated.value);
+      const joined = await matchLobby(validated.value);
       const nextSession: SessionState = {
-        gameId: validated.value.gameId,
+        gameId: joined.gameId,
         seat: joined.seat,
         displayName: validated.value.name,
         sessionToken: joined.sessionToken,
@@ -447,7 +402,7 @@ export function App() {
     } finally {
       setIsJoining(false);
     }
-  }, [joinGameId, joinToken, joinName, joinSeat, replaceSpectateLocation, syncSnapshot, setNetworkBannerFromError]);
+  }, [passphrase, joinName, replaceSpectateLocation, syncSnapshot, setNetworkBannerFromError]);
 
   const startSpectatingByGameId = useCallback(async (gameId: string): Promise<boolean> => {
     setIsStartingSpectate(true);
@@ -1038,39 +993,27 @@ export function App() {
     return (
       <SetupScreen
         setupMode={setupMode}
-        createMainMinutes={createMainMinutes}
-        createByoSeconds={createByoSeconds}
-        joinGameId={joinGameId}
+        passphrase={passphrase}
         spectateGameId={spectateGameId}
-        joinToken={joinToken}
         joinName={joinName}
-        joinSeat={joinSeat}
         botName={botName}
         botSeat={botSeat}
-        createErrors={createErrors}
         joinErrors={joinErrors}
         spectateErrors={spectateErrors}
-        createMessage={createMessage}
         joinMessage={joinMessage}
         spectateMessage={spectateMessage}
         botMessage={botMessage}
         spectatorUrl={spectatorUrl}
-        isCreating={isCreating}
         isJoining={isJoining || isRestoringSession}
         isStartingSpectate={isStartingSpectate}
         isStartingBot={isStartingBot}
         onSetupModeChange={onSetupModeChange}
-        onCreateMainMinutesChange={setCreateMainMinutes}
-        onCreateByoSecondsChange={setCreateByoSeconds}
-        onJoinGameIdChange={setJoinGameId}
+        onPassphraseChange={setPassphrase}
         onSpectateGameIdChange={setSpectateGameId}
-        onJoinTokenChange={setJoinToken}
         onJoinNameChange={setJoinName}
-        onJoinSeatChange={setJoinSeat}
         onBotNameChange={setBotName}
         onBotSeatChange={setBotSeat}
         onBotStart={onStartBotGame}
-        onCreateSubmit={onCreateGame}
         onJoinSubmit={onJoinGame}
         onSpectateSubmit={() => {
           void onStartSpectate();
@@ -1231,5 +1174,3 @@ export function App() {
     </main>
   );
 }
-
-

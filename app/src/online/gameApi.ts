@@ -28,6 +28,19 @@ export type JoinGameResponse = {
   seat: Seat;
 };
 
+export type MatchLobbyRequest = {
+  passphrase: string;
+  name: string;
+};
+
+export type MatchLobbyResponse = {
+  gameId: string;
+  guestId: string;
+  sessionToken: string;
+  managedToken: string | null;
+  seat: Seat;
+};
+
 export type GameSnapshot = {
   id: string;
   status: GameStatus;
@@ -165,6 +178,17 @@ export async function joinGame(input: JoinGameRequest, baseUrl?: string): Promis
       name: input.name,
       seat: input.seat,
       joinToken: input.joinToken,
+    }),
+  });
+}
+
+export async function matchLobby(input: MatchLobbyRequest, baseUrl?: string): Promise<MatchLobbyResponse> {
+  return requestApiJson<MatchLobbyResponse>("/api/lobby/match", baseUrl, {
+    method: "POST",
+    headers: buildJsonHeaders(),
+    body: JSON.stringify({
+      passphrase: input.passphrase,
+      name: input.name,
     }),
   });
 }

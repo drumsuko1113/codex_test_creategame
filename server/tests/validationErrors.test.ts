@@ -28,6 +28,18 @@ afterAll(async () => {
 });
 
 describe("request validation errors", () => {
+  test("returns 400 when lobby match payload is invalid", async () => {
+    const response = await fetch(`${baseUrl}/api/lobby/match`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passphrase: "too-long-9", name: "player" }),
+    });
+
+    expect(response.status).toBe(400);
+    const payload = (await response.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("INVALID_MATCH_PAYLOAD");
+  });
+
   test("returns 400 when JSON body is malformed", async () => {
     const response = await fetch(`${baseUrl}/api/games`, {
       method: "POST",

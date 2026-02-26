@@ -1,3 +1,4 @@
+export const ROUTE_LOBBY_MATCH = /^\/api\/lobby\/match$/;
 export const ROUTE_JOIN = /^\/api\/games\/([^/]+)\/join$/;
 export const ROUTE_RECORDS = /^\/api\/games\/([^/]+)\/records$/;
 export const ROUTE_SNAPSHOT = /^\/api\/games\/([^/]+)$/;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ApiClientError, createGame, getGameSnapshot, getSessionPlayer, joinGame, resignGame, submitMove } from "../src/online/gameApi";
+import { ApiClientError, createGame, getGameSnapshot, getSessionPlayer, joinGame, matchLobby, resignGame, submitMove } from "../src/online/gameApi";
 
 const originalFetch = global.fetch;
 
@@ -69,6 +69,52 @@ describe("gameApi", () => {
         method: "POST",
       }),
     );
+  });
+
+  test("matchLobby sends POST /api/lobby/match and returns payload", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          gameId: "game-1",
+          guestId: "guest-1",
+          sessionToken: "session-1",
+          managedToken: null,
+          seat: "black",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await matchLobby(
+      {
+        passphrase: "Room123",
+        name: "player-1",
+      },
+      "http://127.0.0.1:3000",
+    );
+
+    expect(result).toEqual({
+      gameId: "game-1",
+      guestId: "guest-1",
+      sessionToken: "session-1",
+      managedToken: null,
+      seat: "black",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/api/lobby/match",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)).toEqual({
+      passphrase: "Room123",
+      name: "player-1",
+    });
   });
 
   test("throws ApiClientError with code/status for failed response", async () => {

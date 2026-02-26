@@ -28,6 +28,57 @@ afterAll(async () => {
 });
 
 describe("online match backend flow", () => {
+  test("matches two players with the same passphrase and starts game", async () => {
+    const firstRes = await fetch(`${baseUrl}/api/lobby/match`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passphrase: "Room123", name: "first" }),
+    });
+    expect(firstRes.status).toBe(200);
+    const first = (await firstRes.json()) as { gameId: string; seat: string };
+    expect(first.seat).toBe("black");
+
+    const secondRes = await fetch(`${baseUrl}/api/lobby/match`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passphrase: "Room123", name: "second" }),
+    });
+    expect(secondRes.status).toBe(200);
+    const second = (await secondRes.json()) as { gameId: string; seat: string };
+    expect(second.gameId).toBe(first.gameId);
+    expect(second.seat).toBe("white");
+
+    const snapshotRes = await fetch(`${baseUrl}/api/games/${first.gameId}`);
+    expect(snapshotRes.status).toBe(200);
+    const snapshot = (await snapshotRes.json()) as { status: string };
+    expect(snapshot.status).toBe("active");
+  });
+
+  test("creates a new waiting game when same passphrase game is already active", async () => {
+    const firstRes = await fetch(`${baseUrl}/api/lobby/match`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passphrase: "Again77", name: "first" }),
+    });
+    const first = (await firstRes.json()) as { gameId: string };
+
+    await fetch(`${baseUrl}/api/lobby/match`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passphrase: "Again77", name: "second" }),
+    });
+
+    const thirdRes = await fetch(`${baseUrl}/api/lobby/match`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passphrase: "Again77", name: "third" }),
+    });
+    expect(thirdRes.status).toBe(200);
+    const third = (await thirdRes.json()) as { gameId: string; seat: string };
+    expect(third.gameId).not.toBe(first.gameId);
+    expect(third.seat).toBe("black");
+  });
+
   test("create -> join -> move -> resign", async () => {
     const createRes = await fetch(`${baseUrl}/api/games`, {
       method: "POST",
