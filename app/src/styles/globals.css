@@ -498,29 +498,6 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .game-area {
-    display: grid;
-    gap: 10px;
-  }
-
-  .hand-anchor {
-    position: static;
-    width: 240px;
-    margin: 0 auto;
-  }
-
-  .hand-anchor-white {
-    order: 1;
-  }
-
-  .board {
-    order: 2;
-  }
-
-  .hand-anchor-black {
-    order: 3;
-  }
-
   .hand-pieces {
     grid-template-columns: repeat(4, 1fr);
   }
