@@ -184,14 +184,14 @@ export function SetupScreen({
                     className={`setup-button ${joinSeat === "black" ? "is-selected" : ""}`.trim()}
                     onClick={() => onJoinSeatChange("black")}
                   >
-                    black
+                    先手
                   </button>
                   <button
                     type="button"
                     className={`setup-button ${joinSeat === "white" ? "is-selected" : ""}`.trim()}
                     onClick={() => onJoinSeatChange("white")}
                   >
-                    white
+                    後手
                   </button>
                 </div>
               </div>
@@ -262,14 +262,14 @@ export function SetupScreen({
                   className={`setup-button ${botSeat === "black" ? "is-selected" : ""}`.trim()}
                   onClick={() => onBotSeatChange("black")}
                 >
-                  black
+                  先手
                 </button>
                 <button
                   type="button"
                   className={`setup-button ${botSeat === "white" ? "is-selected" : ""}`.trim()}
                   onClick={() => onBotSeatChange("white")}
                 >
-                  white
+                  後手
                 </button>
               </div>
             </div>
