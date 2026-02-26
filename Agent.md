@@ -53,6 +53,7 @@ This repository follows a git-flow style workflow.
 1. Do not include local absolute paths (e.g. `C:\...`) in implementation summaries, PR descriptions, or PR comments.
 2. Always use repository-relative paths (e.g. `server/src/app.ts`).
 3. When sharing change lists for PR text, provide plain relative file paths only.
+4. Write pull request titles, descriptions, and review comments in Japanese.
 
 ## Approval Policy
 
