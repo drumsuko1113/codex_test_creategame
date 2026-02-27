@@ -21,7 +21,7 @@ import {
   submitMove,
   type GameSnapshot,
 } from "./online/gameApi";
-import { buildResultText, toClockState } from "./online/gameSnapshot";
+import { buildResultText, projectClockState } from "./online/gameSnapshot";
 import { formatLobbyError, validateCreateGameForm, validateJoinGameForm, validateSpectateGameForm } from "./online/lobbyValidation";
 import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
 import { computePollingRetryDelayMs, isRetryableNetworkError } from "./online/networkRecovery";
@@ -54,6 +54,18 @@ type SessionState = {
   displayName: string;
   sessionToken: string;
 };
+
+type OnlineClockSync = {
+  snapshot: GameSnapshot;
+  serverOffsetMs: number;
+};
+
+function isSameClockState(left: ClockState, right: ClockState): boolean {
+  return left.main.black === right.main.black
+    && left.main.white === right.main.white
+    && left.byo.black === right.byo.black
+    && left.byo.white === right.byo.white;
+}
 
 export function App() {
   const initialTimeControl = DEFAULT_TIME_CONTROL;
@@ -116,6 +128,7 @@ export function App() {
   const pollingInFlightRef = useRef(false);
   const pollingFailureCountRef = useRef(0);
   const hasAutoStartedSpectateRef = useRef(false);
+  const onlineClockSyncRef = useRef<OnlineClockSync | null>(null);
 
   useEffect(() => {
     pieceSoundRef.current = new Audio(PIECE_SOUND_PATH);
@@ -185,8 +198,16 @@ export function App() {
 
   const applySnapshot = useCallback(
     (snapshot: GameSnapshot, options: { showDialog?: boolean } = {}) => {
+      const clientNowMs = Date.now();
+      const parsedUpdatedAtMs = Date.parse(snapshot.updatedAt);
+      const serverNowMs = Number.isFinite(parsedUpdatedAtMs) ? parsedUpdatedAtMs : clientNowMs;
+      onlineClockSyncRef.current = {
+        snapshot,
+        serverOffsetMs: serverNowMs - clientNowMs,
+      };
+
       setState(snapshot.state);
-      setClockState(toClockState(snapshot));
+      setClockState(projectClockState(snapshot, serverNowMs));
       setGameVersion(snapshot.version);
       latestVersionRef.current = snapshot.version;
       setWinner(snapshot.winner);
@@ -466,6 +487,7 @@ export function App() {
       setShowRestartDialog(false);
       setGameMessage(null);
       setNetworkBannerMessage(null);
+      onlineClockSyncRef.current = null;
       setState(initialState);
       setClockState(createClockState(initialTimeControl));
       setGameVersion(1);
@@ -526,6 +548,7 @@ export function App() {
       setSpectatorGameId(null);
       setMatchMode("bot");
       setScreenMode("game");
+      onlineClockSyncRef.current = null;
       setState(initialState);
       setClockState(createClockState(initialTimeControl));
       setGameVersion(1);
@@ -620,6 +643,29 @@ export function App() {
       }
     };
   }, [screenMode, matchMode, onlineGameId, gameOver, syncSnapshot, isOffline]);
+
+  useEffect(() => {
+    if (screenMode !== "game" || matchMode !== "online" || typeof window === "undefined") {
+      return;
+    }
+
+    const updateClock = () => {
+      const clockSync = onlineClockSyncRef.current;
+      if (!clockSync) {
+        return;
+      }
+
+      const serverNowMs = Date.now() + clockSync.serverOffsetMs;
+      const nextClockState = projectClockState(clockSync.snapshot, serverNowMs);
+      setClockState((current) => (isSameClockState(current, nextClockState) ? current : nextClockState));
+    };
+
+    updateClock();
+    const timerId = window.setInterval(updateClock, 250);
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [screenMode, matchMode, onlineGameId]);
 
   useEffect(() => {
     if (matchMode !== "online" || typeof window === "undefined") {
@@ -970,6 +1016,7 @@ export function App() {
     setWinner(null);
     setResultText(null);
     setGameOver(false);
+    onlineClockSyncRef.current = null;
     setState(initialState);
     setClockState(createClockState(initialTimeControl));
     setGameVersion(1);

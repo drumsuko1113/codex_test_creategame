@@ -141,26 +141,26 @@ function oppositeSeat(seat: Seat): Seat {
 }
 
 function applyElapsedClock(game: PersistedGame, seat: Seat, nowMs: number): boolean {
-  const elapsedSeconds = Math.ceil(Math.max(0, nowMs - game.turnStartedAtMs) / 1000);
-
-  if (seat === "black") {
-    if (elapsedSeconds <= game.mainSecondsBlack) {
-      game.mainSecondsBlack -= elapsedSeconds;
-      return false;
-    }
-    const overtime = elapsedSeconds - game.mainSecondsBlack;
-    game.mainSecondsBlack = 0;
-    return overtime > game.byoSecondsBlack;
-  }
-
-  if (elapsedSeconds <= game.mainSecondsWhite) {
-    game.mainSecondsWhite -= elapsedSeconds;
+  const elapsedMs = Math.max(0, nowMs - game.turnStartedAtMs);
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  if (elapsedSeconds <= 0) {
     return false;
   }
 
-  const overtime = elapsedSeconds - game.mainSecondsWhite;
-  game.mainSecondsWhite = 0;
-  return overtime > game.byoSecondsWhite;
+  game.turnStartedAtMs += elapsedSeconds * 1000;
+  let remaining = elapsedSeconds;
+
+  if (seat === "black") {
+    const consumedMain = Math.min(remaining, game.mainSecondsBlack);
+    game.mainSecondsBlack -= consumedMain;
+    remaining -= consumedMain;
+    return remaining > game.byoSecondsBlack;
+  }
+
+  const consumedMain = Math.min(remaining, game.mainSecondsWhite);
+  game.mainSecondsWhite -= consumedMain;
+  remaining -= consumedMain;
+  return remaining > game.byoSecondsWhite;
 }
 
 function settleTimeoutIfNeeded(game: PersistedGame, nowMs: number): boolean {
@@ -290,6 +290,7 @@ export class InMemoryStore implements GameStore {
 
     game.mainSecondsBlack = snapshot.mainSecondsBlack;
     game.mainSecondsWhite = snapshot.mainSecondsWhite;
+    game.turnStartedAtMs = snapshot.turnStartedAtMs;
     if (changed) {
       game.status = snapshot.status;
       game.resultType = snapshot.resultType;
