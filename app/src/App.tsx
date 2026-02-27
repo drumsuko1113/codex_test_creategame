@@ -31,8 +31,9 @@ import {
 } from "./online/gameApi";
 import { buildResultText, toClockState } from "./online/gameSnapshot";
 import { formatLobbyError, validateCreateGameForm, validateJoinGameForm, validateSpectateGameForm } from "./online/lobbyValidation";
-import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
+import { shouldApplySnapshot } from "./online/pollingPolicy";
 import { computePollingRetryDelayMs, isRetryableNetworkError } from "./online/networkRecovery";
+import { buildGameEventsWebSocketUrl, parseRealtimeSnapshotMessage } from "./online/realtimeEvents";
 import { clearStoredSession, loadStoredSession, saveStoredSession } from "./online/sessionPersistence";
 import { buildSpectatorUrl, parseSpectateGameId } from "./online/spectatorLink";
 import { chooseRandomMove } from "../../bot/src/randomBot";
@@ -123,8 +124,6 @@ export function App() {
   const [isSubmittingResign, setIsSubmittingResign] = useState(false);
   const pieceSoundRef = useRef<HTMLAudioElement | null>(null);
   const latestVersionRef = useRef(gameVersion);
-  const pollingInFlightRef = useRef(false);
-  const pollingFailureCountRef = useRef(0);
   const hasAutoStartedSpectateRef = useRef(false);
 
   useEffect(() => {
@@ -576,66 +575,122 @@ export function App() {
   }, [initialSpectateGameId, startSpectatingByGameId]);
 
   useEffect(() => {
-    if (screenMode !== "game" || matchMode !== "online" || !onlineGameId || gameOver) {
+    if (
+      typeof window === "undefined"
+      || typeof WebSocket === "undefined"
+      || screenMode !== "game"
+      || matchMode !== "online"
+      || !onlineGameId
+      || gameOver
+      || isOffline
+    ) {
       return;
     }
 
     let disposed = false;
-    let timerId: number | null = null;
+    let socket: WebSocket | null = null;
+    let reconnectTimerId: number | null = null;
+    let reconnectFailureCount = 0;
 
-    const scheduleNext = () => {
-      if (disposed) {
+    const clearSocket = () => {
+      if (!socket) {
         return;
       }
-      const baseIntervalMs = getPollingIntervalMs(document.hidden);
-      const delayMs = computePollingRetryDelayMs(baseIntervalMs, pollingFailureCountRef.current);
-      timerId = window.setTimeout(() => {
-        void pollOnce();
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close();
+      socket = null;
+    };
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimerId !== null) {
+        window.clearTimeout(reconnectTimerId);
+        reconnectTimerId = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimerId !== null) {
+        return;
+      }
+      const delayMs = computePollingRetryDelayMs(1000, reconnectFailureCount);
+      reconnectFailureCount += 1;
+      reconnectTimerId = window.setTimeout(() => {
+        reconnectTimerId = null;
+        connect();
       }, delayMs);
     };
 
-    const pollOnce = async () => {
+    const connect = () => {
       if (disposed) {
         return;
       }
-      if (pollingInFlightRef.current) {
-        scheduleNext();
+      clearSocket();
+      clearReconnectTimer();
+
+      try {
+        const wsUrl = buildGameEventsWebSocketUrl(onlineGameId);
+        socket = new WebSocket(wsUrl);
+      } catch {
+        setNetworkBannerMessage("リアルタイム接続に失敗しました。再接続を試行します。");
+        scheduleReconnect();
         return;
       }
 
-      pollingInFlightRef.current = true;
-      try {
-        const synced = await syncSnapshot(onlineGameId, {
+      socket.onopen = () => {
+        reconnectFailureCount = 0;
+        setNetworkBannerMessage(null);
+        void syncSnapshot(onlineGameId, {
           showDialog: false,
           suppressError: true,
           onlyIfVersionAdvanced: true,
           background: true,
-        });
-
-        if (synced) {
-          pollingFailureCountRef.current = 0;
-          if (!isOffline) {
-            setNetworkBannerMessage(null);
+        }).then((synced) => {
+          if (synced) {
+            setGameMessage(null);
           }
-        } else {
-          pollingFailureCountRef.current += 1;
+        });
+      };
+
+      socket.onmessage = (event) => {
+        const snapshot = parseRealtimeSnapshotMessage(event.data);
+        if (!snapshot || snapshot.id !== onlineGameId) {
+          return;
         }
-      } finally {
-        pollingInFlightRef.current = false;
-        scheduleNext();
-      }
+        if (!shouldApplySnapshot(latestVersionRef.current, snapshot.version)) {
+          return;
+        }
+        applySnapshot(snapshot, { showDialog: false });
+        setGameMessage(null);
+        setNetworkBannerMessage(null);
+      };
+
+      socket.onerror = () => {
+        if (disposed) {
+          return;
+        }
+        setNetworkBannerMessage("リアルタイム同期が不安定です。再接続を試行します。");
+      };
+
+      socket.onclose = () => {
+        if (disposed) {
+          return;
+        }
+        setNetworkBannerMessage("リアルタイム接続が切断されました。再接続しています。");
+        scheduleReconnect();
+      };
     };
 
-    scheduleNext();
+    connect();
 
     return () => {
       disposed = true;
-      pollingInFlightRef.current = false;
-      if (timerId !== null) {
-        window.clearTimeout(timerId);
-      }
+      clearReconnectTimer();
+      clearSocket();
     };
-  }, [screenMode, matchMode, onlineGameId, gameOver, syncSnapshot, isOffline]);
+  }, [screenMode, matchMode, onlineGameId, gameOver, isOffline, syncSnapshot, applySnapshot]);
 
   useEffect(() => {
     if (matchMode !== "online" || typeof window === "undefined") {
@@ -649,7 +704,6 @@ export function App() {
 
     const handleOnline = () => {
       setIsOffline(false);
-      pollingFailureCountRef.current = 0;
       setNetworkBannerMessage("ネットワークに再接続しました。同期を再試行します。");
 
       if (screenMode === "game" && onlineGameId && !gameOver) {
@@ -1063,7 +1117,6 @@ export function App() {
 
     const synced = await syncSnapshot(onlineGameId, { showDialog: false });
     if (synced) {
-      pollingFailureCountRef.current = 0;
       setNetworkBannerMessage(null);
       setGameMessage(null);
     }
