@@ -40,6 +40,25 @@ export function toClockState(snapshot: GameSnapshot): ClockState {
   };
 }
 
+export function projectClockState(snapshot: GameSnapshot, serverNowMs: number): ClockState {
+  const projected = toClockState(snapshot);
+  if (snapshot.status !== "active") {
+    return projected;
+  }
+
+  const elapsedSeconds = Math.floor(Math.max(0, serverNowMs - snapshot.turnStartedAtMs) / 1000);
+  if (elapsedSeconds <= 0) {
+    return projected;
+  }
+
+  const activeSeat = snapshot.turn;
+  const consumedMain = Math.min(elapsedSeconds, projected.main[activeSeat]);
+  projected.main[activeSeat] -= consumedMain;
+  const overtime = elapsedSeconds - consumedMain;
+  projected.byo[activeSeat] = Math.max(0, projected.byo[activeSeat] - overtime);
+  return projected;
+}
+
 export function buildResultText(snapshot: GameSnapshot): string | null {
   if (snapshot.status !== "finished") {
     return null;
