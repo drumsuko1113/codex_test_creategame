@@ -1146,8 +1146,8 @@ export function App() {
       {session ? (
         <p className="session-summary">
           {matchMode === "online"
-            ? `gameId: ${session.gameId} / seat: ${session.seat} / name: ${session.displayName} / version: ${gameVersion}`
-            : `mode: bot / seat: ${session.seat} / name: ${session.displayName} / version: ${gameVersion}`}
+            ? `gameId: ${session.gameId} / 先後: ${winnerLabel(session.seat)} / name: ${session.displayName} / version: ${gameVersion}`
+            : `mode: bot / 先後: ${winnerLabel(session.seat)} / name: ${session.displayName} / version: ${gameVersion}`}
         </p>
       ) : matchMode === "online" && spectatorGameId ? (
         <p className="session-summary">mode: spectator / gameId: {spectatorGameId} / version: {gameVersion}</p>
