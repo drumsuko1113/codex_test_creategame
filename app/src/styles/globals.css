@@ -255,8 +255,8 @@ body {
 .history-list {
   margin: 0;
   padding-left: 32px;
-  max-height: 220px;
-  overflow: auto;
+  height: 220px;
+  overflow-y: auto;
 }
 
 .history-list li::marker {
