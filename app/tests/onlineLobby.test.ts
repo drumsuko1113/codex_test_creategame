@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatLobbyError, validateCreateGameForm, validateJoinGameForm, validateSpectateGameForm } from "../src/online/lobbyValidation";
+import { formatLobbyError, validateCreateGameForm, validateMatchLobbyForm, validateSpectateGameForm } from "../src/online/lobbyValidation";
 
 describe("lobby validation", () => {
   test("validateCreateGameForm returns errors for invalid values", () => {
@@ -23,38 +23,45 @@ describe("lobby validation", () => {
     });
   });
 
-  test("validateJoinGameForm returns errors when required fields are empty", () => {
-    const result = validateJoinGameForm({
-      gameId: "",
-      joinToken: "",
+  test("validateMatchLobbyForm returns errors when required fields are invalid", () => {
+    const result = validateMatchLobbyForm({
+      passphrase: "",
       name: "a",
-      seat: "black",
     });
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
     }
-    expect(result.errors).toContain("gameIdを入力してください。");
-    expect(result.errors).toContain("joinTokenを入力してください。");
+    expect(result.errors).toContain("合言葉を入力してください。");
     expect(result.errors).toContain("表示名は2〜20文字で入力してください。");
   });
 
-  test("validateJoinGameForm trims and accepts valid input", () => {
-    const result = validateJoinGameForm({
-      gameId: "12ab",
-      joinToken: "f".repeat(32),
+  test("validateMatchLobbyForm trims and accepts valid input", () => {
+    const result = validateMatchLobbyForm({
+      passphrase: " Room123 ",
       name: "  player-1  ",
-      seat: "white",
     });
     expect(result).toEqual({
       ok: true,
       value: {
-        gameId: "12ab",
-        joinToken: "f".repeat(32),
+        passphrase: "Room123",
         name: "player-1",
-        seat: "white",
       },
     });
+  });
+
+  test("validateMatchLobbyForm rejects non-alphanumeric passphrase and long passphrase", () => {
+    const invalidChars = validateMatchLobbyForm({ passphrase: "abc-123", name: "player-1" });
+    expect(invalidChars.ok).toBe(false);
+    if (!invalidChars.ok) {
+      expect(invalidChars.errors).toContain("合言葉は半角英数字8文字以内で入力してください。");
+    }
+
+    const invalidLength = validateMatchLobbyForm({ passphrase: "abcdefghi", name: "player-1" });
+    expect(invalidLength.ok).toBe(false);
+    if (!invalidLength.ok) {
+      expect(invalidLength.errors).toContain("合言葉は半角英数字8文字以内で入力してください。");
+    }
   });
 
   test("validateSpectateGameForm returns error when gameId is empty", () => {

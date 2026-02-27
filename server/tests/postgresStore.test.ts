@@ -11,6 +11,20 @@ afterAll(async () => {
 });
 
 describe("PostgresStore", () => {
+  test("matches by passphrase and creates a new game after room is full", async () => {
+    const store = new PostgresStore(pool);
+
+    const first = await store.matchByPassphrase({ passphrase: "Room123", name: "first" });
+    const second = await store.matchByPassphrase({ passphrase: "Room123", name: "second" });
+    expect(second.gameId).toBe(first.gameId);
+    expect(first.seat).toBe("black");
+    expect(second.seat).toBe("white");
+
+    const third = await store.matchByPassphrase({ passphrase: "Room123", name: "third" });
+    expect(third.gameId).not.toBe(first.gameId);
+    expect(third.seat).toBe("black");
+  });
+
   test("persists game state and move records across store re-instantiation", async () => {
     const store1 = new PostgresStore(pool);
     const created = await store1.createGame({ mainMinutes: 5, byoSeconds: 30 });

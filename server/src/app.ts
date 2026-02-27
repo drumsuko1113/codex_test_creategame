@@ -6,10 +6,10 @@ import { requireSessionAuth } from "./middleware";
 import { RateLimiter } from "./rateLimiter";
 import { RealtimeHub } from "./realtime";
 import { respond, respondError } from "./respond";
-import { ROUTE_JOIN, ROUTE_ME, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
+import { ROUTE_JOIN, ROUTE_LOBBY_MATCH, ROUTE_ME, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
 import { createDefaultStore, type GameStore } from "./store";
 import type { Player } from "./types";
-import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput } from "./validators";
+import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput, isValidLobbyMatchInput } from "./validators";
 
 type AppOptions = {
   store?: GameStore;
@@ -128,6 +128,20 @@ async function handleRequest(
     const created = await store.createGame(body);
     respond(res, ctx, 201, created, { gameId: created.gameId, event: "game.created" });
     realtime.broadcast(created.gameId, "game.created", created);
+    return;
+  }
+
+  const lobbyMatch = req.url?.match(ROUTE_LOBBY_MATCH);
+  if (req.method === "POST" && lobbyMatch) {
+    const body = await readJsonBody<unknown>(req);
+    if (!isValidLobbyMatchInput(body)) {
+      respondError(res, ctx, 400, "INVALID_MATCH_PAYLOAD", "Invalid lobby match payload");
+      return;
+    }
+
+    const matched = await store.matchByPassphrase(body);
+    respond(res, ctx, 200, matched, { gameId: matched.gameId, guestId: matched.guestId, event: "lobby.matched" });
+    realtime.broadcast(matched.gameId, "player.joined", matched);
     return;
   }
 

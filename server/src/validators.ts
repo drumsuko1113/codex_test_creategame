@@ -1,5 +1,5 @@
 import type { Move } from "../../core/src/types";
-import type { CreateGameInput, JoinGameInput } from "./types";
+import type { CreateGameInput, JoinGameInput, LobbyMatchInput } from "./types";
 
 export type MoveRequestBody = {
   move: Move;
@@ -16,8 +16,10 @@ const BYO_SECONDS_STEP = 10;
 const MIN_PLAYER_NAME_LENGTH = 2;
 const MAX_PLAYER_NAME_LENGTH = 20;
 const MIN_JOIN_TOKEN_LENGTH = 16;
+const MAX_PASSPHRASE_LENGTH = 8;
 const VALID_SEATS = new Set<JoinGameInput["seat"]>(["black", "white"]);
 const DROP_KINDS = new Set(["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"]);
+const PASSPHRASE_PATTERN = /^[A-Za-z0-9]+$/;
 
 function isRecord(input: unknown): input is JsonRecord {
   return !!input && typeof input === "object";
@@ -78,9 +80,7 @@ export function isValidJoinGameInput(input: unknown): input is JoinGameInput {
     return false;
   }
 
-  const name = typeof input.name === "string" ? input.name : "";
-  const trimmed = name.trim();
-  if (!trimmed || trimmed.length < MIN_PLAYER_NAME_LENGTH || trimmed.length > MAX_PLAYER_NAME_LENGTH) {
+  if (!isValidPlayerName(input.name)) {
     return false;
   }
 
@@ -89,6 +89,32 @@ export function isValidJoinGameInput(input: unknown): input is JoinGameInput {
   }
 
   return typeof input.joinToken === "string" && input.joinToken.length >= MIN_JOIN_TOKEN_LENGTH;
+}
+
+function isValidPlayerName(name: unknown): boolean {
+  if (typeof name !== "string") {
+    return false;
+  }
+
+  const trimmed = name.trim();
+  return trimmed.length >= MIN_PLAYER_NAME_LENGTH && trimmed.length <= MAX_PLAYER_NAME_LENGTH;
+}
+
+export function isValidLobbyMatchInput(input: unknown): input is LobbyMatchInput {
+  if (!isRecord(input)) {
+    return false;
+  }
+
+  if (!isValidPlayerName(input.name)) {
+    return false;
+  }
+
+  if (typeof input.passphrase !== "string") {
+    return false;
+  }
+
+  const passphrase = input.passphrase.trim();
+  return passphrase.length > 0 && passphrase.length <= MAX_PASSPHRASE_LENGTH && PASSPHRASE_PATTERN.test(passphrase);
 }
 
 export function isMoveRequestBody(input: unknown): input is MoveRequestBody {
