@@ -34,6 +34,30 @@ export function formatClockText(mainSeconds: number, byoSeconds: number): string
   return `秒読み ${formatSeconds(byoSeconds)}`;
 }
 
+export function projectClockState(base: ClockState, turn: Color, turnStartedAtMs: number, nowMs: number): ClockState {
+  const elapsedSeconds = Math.floor(Math.max(0, nowMs - turnStartedAtMs) / 1000);
+  if (elapsedSeconds <= 0) {
+    return base;
+  }
+
+  const projected: ClockState = {
+    main: { ...base.main },
+    byo: { ...base.byo },
+  };
+
+  const mainSeconds = base.main[turn];
+  const byoSeconds = base.byo[turn];
+  if (elapsedSeconds <= mainSeconds) {
+    projected.main[turn] = mainSeconds - elapsedSeconds;
+    return projected;
+  }
+
+  const overtime = elapsedSeconds - mainSeconds;
+  projected.main[turn] = 0;
+  projected.byo[turn] = Math.max(0, byoSeconds - overtime);
+  return projected;
+}
+
 export function normalizeTimeControl(mainMinutes: number, byoSeconds: number): TimeControl {
   return {
     mainSeconds: Math.max(0, Math.floor(mainMinutes)) * 60,
