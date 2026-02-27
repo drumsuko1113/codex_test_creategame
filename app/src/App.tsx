@@ -9,7 +9,13 @@ import { type BoardMove, type Color, type GameState, type Move, type PieceKind, 
 import { PIECE_SOUND_PATH } from "./assets";
 import { formatMoveText, oppositeColor, sideLabel, winnerLabel } from "./game/moveText";
 import { positionToKey } from "./game/position";
-import { createClockState, DEFAULT_TIME_CONTROL, formatClockText, type ClockState } from "./game/timeControl";
+import {
+  createClockState,
+  DEFAULT_TIME_CONTROL,
+  formatClockText,
+  projectClockState,
+  type ClockState,
+} from "./game/timeControl";
 import { canOperateTurn, getTurnLockMessage } from "./game/turnControl";
 import {
   ApiClientError,
@@ -22,8 +28,9 @@ import {
 } from "./online/gameApi";
 import { buildResultText, toClockState } from "./online/gameSnapshot";
 import { formatLobbyError, validateMatchLobbyForm, validateSpectateGameForm } from "./online/lobbyValidation";
-import { getPollingIntervalMs, shouldApplySnapshot } from "./online/pollingPolicy";
+import { shouldApplySnapshot } from "./online/pollingPolicy";
 import { computePollingRetryDelayMs, isRetryableNetworkError } from "./online/networkRecovery";
+import { buildGameEventsWebSocketUrl, parseRealtimeSnapshotMessage } from "./online/realtimeEvents";
 import { clearStoredSession, loadStoredSession, saveStoredSession } from "./online/sessionPersistence";
 import { buildSpectatorUrl, parseSpectateGameId } from "./online/spectatorLink";
 import { chooseRandomMove } from "../../bot/src/randomBot";
@@ -86,6 +93,8 @@ export function App() {
 
   const [state, setState] = useState<GameState>(initialState);
   const [clockState, setClockState] = useState<ClockState>(() => createClockState(initialTimeControl));
+  const [clockTurnStartedAtMs, setClockTurnStartedAtMs] = useState<number>(() => Date.now());
+  const [clockNowMs, setClockNowMs] = useState<number>(() => Date.now());
   const [gameVersion, setGameVersion] = useState<number>(1);
   const [selected, setSelected] = useState<Position | null>(null);
   const [selectedDrop, setSelectedDrop] = useState<PieceKind | null>(null);
@@ -104,8 +113,6 @@ export function App() {
   const [isSubmittingResign, setIsSubmittingResign] = useState(false);
   const pieceSoundRef = useRef<HTMLAudioElement | null>(null);
   const latestVersionRef = useRef(gameVersion);
-  const pollingInFlightRef = useRef(false);
-  const pollingFailureCountRef = useRef(0);
   const hasAutoStartedSpectateRef = useRef(false);
 
   useEffect(() => {
@@ -176,6 +183,8 @@ export function App() {
     (snapshot: GameSnapshot, options: { showDialog?: boolean } = {}) => {
       setState(snapshot.state);
       setClockState(toClockState(snapshot));
+      setClockTurnStartedAtMs(snapshot.turnStartedAtMs);
+      setClockNowMs(Date.now());
       setGameVersion(snapshot.version);
       latestVersionRef.current = snapshot.version;
       setWinner(snapshot.winner);
@@ -423,6 +432,8 @@ export function App() {
       setNetworkBannerMessage(null);
       setState(initialState);
       setClockState(createClockState(initialTimeControl));
+      setClockTurnStartedAtMs(Date.now());
+      setClockNowMs(Date.now());
       setGameVersion(1);
       latestVersionRef.current = 1;
       clearSelections();
@@ -483,6 +494,8 @@ export function App() {
       setScreenMode("game");
       setState(initialState);
       setClockState(createClockState(initialTimeControl));
+      setClockTurnStartedAtMs(Date.now());
+      setClockNowMs(Date.now());
       setGameVersion(1);
       latestVersionRef.current = 1;
       setWinner(null);
@@ -515,66 +528,122 @@ export function App() {
   }, [initialSpectateGameId, startSpectatingByGameId]);
 
   useEffect(() => {
-    if (screenMode !== "game" || matchMode !== "online" || !onlineGameId || gameOver) {
+    if (
+      typeof window === "undefined"
+      || typeof WebSocket === "undefined"
+      || screenMode !== "game"
+      || matchMode !== "online"
+      || !onlineGameId
+      || gameOver
+      || isOffline
+    ) {
       return;
     }
 
     let disposed = false;
-    let timerId: number | null = null;
+    let socket: WebSocket | null = null;
+    let reconnectTimerId: number | null = null;
+    let reconnectFailureCount = 0;
 
-    const scheduleNext = () => {
-      if (disposed) {
+    const clearSocket = () => {
+      if (!socket) {
         return;
       }
-      const baseIntervalMs = getPollingIntervalMs(document.hidden);
-      const delayMs = computePollingRetryDelayMs(baseIntervalMs, pollingFailureCountRef.current);
-      timerId = window.setTimeout(() => {
-        void pollOnce();
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close();
+      socket = null;
+    };
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimerId !== null) {
+        window.clearTimeout(reconnectTimerId);
+        reconnectTimerId = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimerId !== null) {
+        return;
+      }
+      const delayMs = computePollingRetryDelayMs(1000, reconnectFailureCount);
+      reconnectFailureCount += 1;
+      reconnectTimerId = window.setTimeout(() => {
+        reconnectTimerId = null;
+        connect();
       }, delayMs);
     };
 
-    const pollOnce = async () => {
+    const connect = () => {
       if (disposed) {
         return;
       }
-      if (pollingInFlightRef.current) {
-        scheduleNext();
+      clearSocket();
+      clearReconnectTimer();
+
+      try {
+        const wsUrl = buildGameEventsWebSocketUrl(onlineGameId);
+        socket = new WebSocket(wsUrl);
+      } catch {
+        setNetworkBannerMessage("リアルタイム接続に失敗しました。再接続を試行します。");
+        scheduleReconnect();
         return;
       }
 
-      pollingInFlightRef.current = true;
-      try {
-        const synced = await syncSnapshot(onlineGameId, {
+      socket.onopen = () => {
+        reconnectFailureCount = 0;
+        setNetworkBannerMessage(null);
+        void syncSnapshot(onlineGameId, {
           showDialog: false,
           suppressError: true,
           onlyIfVersionAdvanced: true,
           background: true,
-        });
-
-        if (synced) {
-          pollingFailureCountRef.current = 0;
-          if (!isOffline) {
-            setNetworkBannerMessage(null);
+        }).then((synced) => {
+          if (synced) {
+            setGameMessage(null);
           }
-        } else {
-          pollingFailureCountRef.current += 1;
+        });
+      };
+
+      socket.onmessage = (event) => {
+        const snapshot = parseRealtimeSnapshotMessage(event.data);
+        if (!snapshot || snapshot.id !== onlineGameId) {
+          return;
         }
-      } finally {
-        pollingInFlightRef.current = false;
-        scheduleNext();
-      }
+        if (!shouldApplySnapshot(latestVersionRef.current, snapshot.version)) {
+          return;
+        }
+        applySnapshot(snapshot, { showDialog: false });
+        setGameMessage(null);
+        setNetworkBannerMessage(null);
+      };
+
+      socket.onerror = () => {
+        if (disposed) {
+          return;
+        }
+        setNetworkBannerMessage("リアルタイム同期が不安定です。再接続を試行します。");
+      };
+
+      socket.onclose = () => {
+        if (disposed) {
+          return;
+        }
+        setNetworkBannerMessage("リアルタイム接続が切断されました。再接続しています。");
+        scheduleReconnect();
+      };
     };
 
-    scheduleNext();
+    connect();
 
     return () => {
       disposed = true;
-      pollingInFlightRef.current = false;
-      if (timerId !== null) {
-        window.clearTimeout(timerId);
-      }
+      clearReconnectTimer();
+      clearSocket();
     };
-  }, [screenMode, matchMode, onlineGameId, gameOver, syncSnapshot, isOffline]);
+  }, [screenMode, matchMode, onlineGameId, gameOver, isOffline, syncSnapshot, applySnapshot]);
 
   useEffect(() => {
     if (matchMode !== "online" || typeof window === "undefined") {
@@ -588,7 +657,6 @@ export function App() {
 
     const handleOnline = () => {
       setIsOffline(false);
-      pollingFailureCountRef.current = 0;
       setNetworkBannerMessage("ネットワークに再接続しました。同期を再試行します。");
 
       if (screenMode === "game" && onlineGameId && !gameOver) {
@@ -609,6 +677,23 @@ export function App() {
       window.removeEventListener("online", handleOnline);
     };
   }, [matchMode, screenMode, onlineGameId, gameOver, syncSnapshot]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (screenMode !== "game" || matchMode !== "online" || gameOver) {
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      setClockNowMs(Date.now());
+    }, 250);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [screenMode, matchMode, gameOver]);
 
   const checkedKing = useMemo(() => {
     if (!isInCheck(state)) {
@@ -927,6 +1012,8 @@ export function App() {
     setGameOver(false);
     setState(initialState);
     setClockState(createClockState(initialTimeControl));
+    setClockTurnStartedAtMs(Date.now());
+    setClockNowMs(Date.now());
     setGameVersion(1);
     latestVersionRef.current = 1;
     replaceSpectateLocation(null);
@@ -983,7 +1070,6 @@ export function App() {
 
     const synced = await syncSnapshot(onlineGameId, { showDialog: false });
     if (synced) {
-      pollingFailureCountRef.current = 0;
       setNetworkBannerMessage(null);
       setGameMessage(null);
     }
@@ -1040,14 +1126,22 @@ export function App() {
           ? `観戦中: ${winnerLabel(state.turn)}の手番`
           : `手番: ${winnerLabel(state.turn)}`;
 
+  const displayClockState = useMemo(() => {
+    if (screenMode !== "game" || matchMode !== "online" || gameOver) {
+      return clockState;
+    }
+
+    return projectClockState(clockState, state.turn, clockTurnStartedAtMs, clockNowMs);
+  }, [screenMode, matchMode, gameOver, clockState, state.turn, clockTurnStartedAtMs, clockNowMs]);
+
   return (
     <main className="app">
       <h1>Shogi Game</h1>
       {session ? (
         <p className="session-summary">
           {matchMode === "online"
-            ? `gameId: ${session.gameId} / seat: ${session.seat} / name: ${session.displayName} / version: ${gameVersion}`
-            : `mode: bot / seat: ${session.seat} / name: ${session.displayName} / version: ${gameVersion}`}
+            ? `gameId: ${session.gameId} / 先後: ${winnerLabel(session.seat)} / name: ${session.displayName} / version: ${gameVersion}`
+            : `mode: bot / 先後: ${winnerLabel(session.seat)} / name: ${session.displayName} / version: ${gameVersion}`}
         </p>
       ) : matchMode === "online" && spectatorGameId ? (
         <p className="session-summary">mode: spectator / gameId: {spectatorGameId} / version: {gameVersion}</p>
@@ -1104,7 +1198,7 @@ export function App() {
           />
           <div className="clock-panel">
             <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(clockState.main.white, clockState.byo.white)}</p>
+            <p className="clock-main">{formatClockText(displayClockState.main.white, displayClockState.byo.white)}</p>
           </div>
           <section className="history-panel" aria-label="move history">
             <h2>棋譜</h2>
@@ -1128,7 +1222,7 @@ export function App() {
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
             <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(clockState.main.black, clockState.byo.black)}</p>
+            <p className="clock-main">{formatClockText(displayClockState.main.black, displayClockState.byo.black)}</p>
           </div>
           <Hand
             hands={state.hands}

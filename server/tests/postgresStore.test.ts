@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vitest";
 import { newDb } from "pg-mem";
 import { PostgresStore } from "../src/store";
 
@@ -110,5 +110,43 @@ describe("PostgresStore", () => {
         game.version,
       ),
     ).rejects.toThrow("VERSION_CONFLICT");
+  });
+
+  test("does not over-deduct clock on repeated snapshot fetches", async () => {
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValue(1_000_000);
+
+    const store = new PostgresStore(pool);
+    const created = await store.createGame({ mainMinutes: 5, byoSeconds: 30 });
+    await store.joinGame(created.gameId, {
+      name: "black",
+      seat: "black",
+      joinToken: created.joinToken,
+    });
+    await store.joinGame(created.gameId, {
+      name: "white",
+      seat: "white",
+      joinToken: created.joinToken,
+    });
+
+    await pool.query(
+      `UPDATE games
+       SET status = 'active',
+           turn = 'black',
+           main_seconds_black = 100,
+           turn_started_at_ms = $2
+       WHERE id = $1`,
+      [created.gameId, 1_000_000],
+    );
+
+    nowSpy.mockReturnValue(1_002_000);
+    const firstSnapshot = await store.getGame(created.gameId);
+    expect(firstSnapshot?.mainSecondsBlack).toBe(98);
+
+    nowSpy.mockReturnValue(1_004_000);
+    const secondSnapshot = await store.getGame(created.gameId);
+    expect(secondSnapshot?.mainSecondsBlack).toBe(96);
+
+    nowSpy.mockRestore();
   });
 });
