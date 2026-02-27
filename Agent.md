@@ -55,6 +55,16 @@ This repository follows a git-flow style workflow.
 3. When sharing change lists for PR text, provide plain relative file paths only.
 4. Write pull request titles, descriptions, and review comments in Japanese.
 
+## PR Encoding Rules (Mandatory)
+
+1. Do not inline Japanese text directly in PowerShell command arguments for GitHub API calls.
+2. Prepare PR payload JSON as UTF-8 (no BOM preferred), then read with `Get-Content -Raw -Encoding utf8`.
+3. Send payload as UTF-8 bytes:
+- `[System.Text.Encoding]::UTF8.GetBytes($json)`
+- `Invoke-RestMethod ... -Body $bytes -ContentType 'application/json; charset=utf-8'`
+4. After create/update, verify title/body via GitHub API GET and confirm no mojibake (`?` replacement, broken characters).
+5. If verification fails, immediately patch the PR again using the UTF-8 byte procedure above.
+
 ## Approval Policy
 
 1. In this repository, agent approval is not required for `git commit`.

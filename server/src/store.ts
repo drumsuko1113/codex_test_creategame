@@ -140,39 +140,133 @@ function oppositeSeat(seat: Seat): Seat {
   return seat === "black" ? "white" : "black";
 }
 
-function applyElapsedClock(game: PersistedGame, seat: Seat, nowMs: number): boolean {
-  const elapsedMs = Math.max(0, nowMs - game.turnStartedAtMs);
-  const elapsedSeconds = Math.floor(elapsedMs / 1000);
-  if (elapsedSeconds <= 0) {
-    return false;
-  }
+type TurnClockProjection = {
+  remainingMainSeconds: number;
+  remainingByoSeconds: number;
+  timedOut: boolean;
+};
 
-  game.turnStartedAtMs += elapsedSeconds * 1000;
-  let remaining = elapsedSeconds;
+type SnapshotClockProjection = {
+  mainSecondsBlack: number;
+  mainSecondsWhite: number;
+  byoSecondsBlack: number;
+  byoSecondsWhite: number;
+  turnStartedAtMs: number;
+  timedOut: boolean;
+};
 
-  if (seat === "black") {
-    const consumedMain = Math.min(remaining, game.mainSecondsBlack);
-    game.mainSecondsBlack -= consumedMain;
-    remaining -= consumedMain;
-    return remaining > game.byoSecondsBlack;
-  }
-
-  const consumedMain = Math.min(remaining, game.mainSecondsWhite);
-  game.mainSecondsWhite -= consumedMain;
-  remaining -= consumedMain;
-  return remaining > game.byoSecondsWhite;
+function getElapsedWholeSeconds(turnStartedAtMs: number, nowMs: number): number {
+  return Math.floor(Math.max(0, nowMs - turnStartedAtMs) / 1000);
 }
 
-function settleTimeoutIfNeeded(game: PersistedGame, nowMs: number): boolean {
+function projectTurnClock(mainSeconds: number, byoSeconds: number, elapsedSeconds: number): TurnClockProjection {
+  if (elapsedSeconds <= 0) {
+    return {
+      remainingMainSeconds: mainSeconds,
+      remainingByoSeconds: byoSeconds,
+      timedOut: false,
+    };
+  }
+
+  if (elapsedSeconds <= mainSeconds) {
+    return {
+      remainingMainSeconds: mainSeconds - elapsedSeconds,
+      remainingByoSeconds: byoSeconds,
+      timedOut: false,
+    };
+  }
+
+  const overtime = elapsedSeconds - mainSeconds;
+  return {
+    remainingMainSeconds: 0,
+    remainingByoSeconds: Math.max(0, byoSeconds - overtime),
+    timedOut: overtime > byoSeconds,
+  };
+}
+
+function projectClockForSnapshot(game: PersistedGame, nowMs: number): SnapshotClockProjection {
+  const base: SnapshotClockProjection = {
+    mainSecondsBlack: game.mainSecondsBlack,
+    mainSecondsWhite: game.mainSecondsWhite,
+    byoSecondsBlack: game.byoSecondsBlack,
+    byoSecondsWhite: game.byoSecondsWhite,
+    turnStartedAtMs: game.turnStartedAtMs,
+    timedOut: false,
+  };
+
+  if (game.status !== "active") {
+    return base;
+  }
+
+  const elapsedSeconds = getElapsedWholeSeconds(game.turnStartedAtMs, nowMs);
+  if (elapsedSeconds <= 0) {
+    return base;
+  }
+
+  if (game.turn === "black") {
+    const projected = projectTurnClock(game.mainSecondsBlack, game.byoSecondsBlack, elapsedSeconds);
+    return {
+      ...base,
+      mainSecondsBlack: projected.remainingMainSeconds,
+      byoSecondsBlack: projected.remainingByoSeconds,
+      turnStartedAtMs: game.turnStartedAtMs + elapsedSeconds * 1000,
+      timedOut: projected.timedOut,
+    };
+  }
+
+  const projected = projectTurnClock(game.mainSecondsWhite, game.byoSecondsWhite, elapsedSeconds);
+  return {
+    ...base,
+    mainSecondsWhite: projected.remainingMainSeconds,
+    byoSecondsWhite: projected.remainingByoSeconds,
+    turnStartedAtMs: game.turnStartedAtMs + elapsedSeconds * 1000,
+    timedOut: projected.timedOut,
+  };
+}
+
+function consumeElapsedClock(game: PersistedGame, nowMs: number): boolean {
   if (game.status !== "active") {
     return false;
   }
 
-  const timedOut = applyElapsedClock(game, game.turn, nowMs);
-  if (!timedOut) {
+  const elapsedSeconds = getElapsedWholeSeconds(game.turnStartedAtMs, nowMs);
+  if (elapsedSeconds <= 0) {
     return false;
   }
 
+  if (game.turn === "black") {
+    const projected = projectTurnClock(game.mainSecondsBlack, game.byoSecondsBlack, elapsedSeconds);
+    game.mainSecondsBlack = projected.remainingMainSeconds;
+    game.turnStartedAtMs += elapsedSeconds * 1000;
+    if (!projected.timedOut) {
+      return false;
+    }
+  } else {
+    const projected = projectTurnClock(game.mainSecondsWhite, game.byoSecondsWhite, elapsedSeconds);
+    game.mainSecondsWhite = projected.remainingMainSeconds;
+    game.turnStartedAtMs += elapsedSeconds * 1000;
+    if (!projected.timedOut) {
+      return false;
+    }
+  }
+
+  game.status = "finished";
+  game.resultType = "timeout";
+  game.winner = oppositeSeat(game.turn);
+  game.updatedAt = new Date(nowMs).toISOString();
+  game.version += 1;
+  return true;
+}
+
+function settleTimeoutIfNeeded(game: PersistedGame, nowMs: number): boolean {
+  const projected = projectClockForSnapshot(game, nowMs);
+  if (!projected.timedOut) {
+    return false;
+  }
+
+  game.mainSecondsBlack = projected.mainSecondsBlack;
+  game.mainSecondsWhite = projected.mainSecondsWhite;
+  game.turnStartedAtMs = projected.turnStartedAtMs;
   game.status = "finished";
   game.resultType = "timeout";
   game.winner = oppositeSeat(game.turn);
@@ -197,6 +291,58 @@ function toGame(snapshot: PersistedGame): Game {
     turnStartedAtMs: snapshot.turnStartedAtMs,
     createdAt: snapshot.createdAt,
     updatedAt: snapshot.updatedAt,
+  };
+}
+
+function toPersistedGame(game: Game, joinTokenHash = ""): PersistedGame {
+  return {
+    id: game.id,
+    status: game.status,
+    turn: game.turn,
+    state: game.state,
+    mainSecondsBlack: game.mainSecondsBlack,
+    mainSecondsWhite: game.mainSecondsWhite,
+    byoSecondsBlack: game.byoSecondsBlack,
+    byoSecondsWhite: game.byoSecondsWhite,
+    resultType: game.resultType,
+    winner: game.winner,
+    version: game.version,
+    turnStartedAtMs: game.turnStartedAtMs,
+    createdAt: game.createdAt,
+    updatedAt: game.updatedAt,
+    joinTokenHash,
+  };
+}
+
+function toProjectedGame(snapshot: PersistedGame, nowMs: number): Game {
+  if (snapshot.status !== "active") {
+    return toGame(snapshot);
+  }
+
+  const projected = projectClockForSnapshot(snapshot, nowMs);
+  if (projected.timedOut) {
+    return {
+      ...toGame(snapshot),
+      mainSecondsBlack: projected.mainSecondsBlack,
+      mainSecondsWhite: projected.mainSecondsWhite,
+      byoSecondsBlack: projected.byoSecondsBlack,
+      byoSecondsWhite: projected.byoSecondsWhite,
+      turnStartedAtMs: projected.turnStartedAtMs,
+      status: "finished",
+      resultType: "timeout",
+      winner: oppositeSeat(snapshot.turn),
+      version: snapshot.version + 1,
+      updatedAt: new Date(nowMs).toISOString(),
+    };
+  }
+
+  return {
+    ...toGame(snapshot),
+    mainSecondsBlack: projected.mainSecondsBlack,
+    mainSecondsWhite: projected.mainSecondsWhite,
+    byoSecondsBlack: projected.byoSecondsBlack,
+    byoSecondsWhite: projected.byoSecondsWhite,
+    turnStartedAtMs: projected.turnStartedAtMs,
   };
 }
 
@@ -267,31 +413,31 @@ export class InMemoryStore implements GameStore {
   private readonly playersByGame = new Map<string, Player[]>();
   private readonly movesByGame = new Map<string, MoveRecord[]>();
 
-  private settleTimeoutIfNeeded(game: Game): void {
-    const snapshot: PersistedGame = {
-      id: game.id,
-      status: game.status,
-      turn: game.turn,
-      state: game.state,
-      mainSecondsBlack: game.mainSecondsBlack,
-      mainSecondsWhite: game.mainSecondsWhite,
-      byoSecondsBlack: game.byoSecondsBlack,
-      byoSecondsWhite: game.byoSecondsWhite,
-      resultType: game.resultType,
-      winner: game.winner,
-      version: game.version,
-      turnStartedAtMs: game.turnStartedAtMs,
-      createdAt: game.createdAt,
-      updatedAt: game.updatedAt,
-      joinTokenHash: "",
-    };
-
-    const changed = settleTimeoutIfNeeded(snapshot, Date.now());
+  private settleTimeoutIfNeeded(game: Game, nowMs: number): void {
+    const snapshot = toPersistedGame(game);
+    const changed = settleTimeoutIfNeeded(snapshot, nowMs);
+    if (!changed) {
+      return;
+    }
 
     game.mainSecondsBlack = snapshot.mainSecondsBlack;
     game.mainSecondsWhite = snapshot.mainSecondsWhite;
     game.turnStartedAtMs = snapshot.turnStartedAtMs;
-    if (changed) {
+    game.status = snapshot.status;
+    game.resultType = snapshot.resultType;
+    game.winner = snapshot.winner;
+    game.updatedAt = snapshot.updatedAt;
+    game.version = snapshot.version;
+  }
+
+  private consumeElapsedClockProgress(game: Game, nowMs: number): void {
+    const snapshot = toPersistedGame(game);
+    consumeElapsedClock(snapshot, nowMs);
+
+    game.mainSecondsBlack = snapshot.mainSecondsBlack;
+    game.mainSecondsWhite = snapshot.mainSecondsWhite;
+    game.turnStartedAtMs = snapshot.turnStartedAtMs;
+    if (snapshot.status === "finished") {
       game.status = snapshot.status;
       game.resultType = snapshot.resultType;
       game.winner = snapshot.winner;
@@ -408,8 +554,9 @@ export class InMemoryStore implements GameStore {
     if (!game) {
       return null;
     }
-    this.settleTimeoutIfNeeded(game);
-    return game;
+    const nowMs = Date.now();
+    this.settleTimeoutIfNeeded(game, nowMs);
+    return toProjectedGame(toPersistedGame(game), nowMs);
   }
 
   async submitMove(gameId: string, actor: Player, move: Move, expectedVersion: number): Promise<Game> {
@@ -418,7 +565,7 @@ export class InMemoryStore implements GameStore {
       throw new Error("GAME_NOT_FOUND");
     }
 
-    this.settleTimeoutIfNeeded(game);
+    this.consumeElapsedClockProgress(game, Date.now());
 
     if (expectedVersion !== game.version) {
       throw new Error("VERSION_CONFLICT");
@@ -463,7 +610,7 @@ export class InMemoryStore implements GameStore {
       throw new Error("GAME_NOT_FOUND");
     }
 
-    this.settleTimeoutIfNeeded(game);
+    this.consumeElapsedClockProgress(game, Date.now());
 
     if (game.status === "finished") {
       throw new Error("GAME_ALREADY_FINISHED");
@@ -760,12 +907,14 @@ export class PostgresStore implements GameStore {
         return null;
       }
 
-      const timedOut = settleTimeoutIfNeeded(game, Date.now());
+      const nowMs = Date.now();
+      const timedOut = settleTimeoutIfNeeded(game, nowMs);
       if (timedOut) {
         await this.updateGame(client, game, game.version - 1);
+        return toGame(game);
       }
 
-      return toGame(game);
+      return toProjectedGame(game, nowMs);
     });
   }
 
@@ -776,7 +925,8 @@ export class PostgresStore implements GameStore {
         throw new Error("GAME_NOT_FOUND");
       }
 
-      const timedOut = settleTimeoutIfNeeded(game, Date.now());
+      consumeElapsedClock(game, Date.now());
+      const timedOut = game.status === "finished" && game.resultType === "timeout";
       if (timedOut) {
         await this.updateGame(client, game, game.version - 1);
       }
@@ -838,7 +988,8 @@ export class PostgresStore implements GameStore {
         throw new Error("GAME_NOT_FOUND");
       }
 
-      const timedOut = settleTimeoutIfNeeded(game, Date.now());
+      consumeElapsedClock(game, Date.now());
+      const timedOut = game.status === "finished" && game.resultType === "timeout";
       if (timedOut) {
         await this.updateGame(client, game, game.version - 1);
       }
