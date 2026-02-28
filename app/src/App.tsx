@@ -1196,10 +1196,12 @@ export function App() {
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
-          <div className="clock-panel">
-            <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(displayClockState.main.white, displayClockState.byo.white)}</p>
-          </div>
+          {matchMode === "online" ? (
+            <div className="clock-panel">
+              <p className="clock-title">持ち時間</p>
+              <p className="clock-main">{formatClockText(displayClockState.main.white, displayClockState.byo.white)}</p>
+            </div>
+          ) : null}
           <section className="history-panel" aria-label="move history">
             <h2>棋譜</h2>
             <ol className="history-list">
@@ -1220,10 +1222,12 @@ export function App() {
         />
 
         <div className="hand-anchor hand-anchor-black">
-          <div className="clock-panel">
-            <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(displayClockState.main.black, displayClockState.byo.black)}</p>
-          </div>
+          {matchMode === "online" ? (
+            <div className="clock-panel">
+              <p className="clock-title">持ち時間</p>
+              <p className="clock-main">{formatClockText(displayClockState.main.black, displayClockState.byo.black)}</p>
+            </div>
+          ) : null}
           <Hand
             hands={state.hands}
             color="black"
