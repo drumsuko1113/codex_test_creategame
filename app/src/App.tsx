@@ -1137,15 +1137,6 @@ export function App() {
   return (
     <main className="app">
       <h1>Shogi Game</h1>
-      {session ? (
-        <p className="session-summary">
-          {matchMode === "online"
-            ? `gameId: ${session.gameId} / 先後: ${winnerLabel(session.seat)} / name: ${session.displayName} / version: ${gameVersion}`
-            : `mode: bot / 先後: ${winnerLabel(session.seat)} / name: ${session.displayName} / version: ${gameVersion}`}
-        </p>
-      ) : matchMode === "online" && spectatorGameId ? (
-        <p className="session-summary">mode: spectator / gameId: {spectatorGameId} / version: {gameVersion}</p>
-      ) : null}
       {matchMode === "online" && networkBannerMessage ? (
         <section className={`network-banner ${isOffline ? "is-offline" : ""}`.trim()} role="status" aria-live="polite">
           <span>{networkBannerMessage}</span>

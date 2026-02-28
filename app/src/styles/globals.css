@@ -122,14 +122,6 @@ body {
   word-break: break-word;
 }
 
-.session-summary {
-  margin: 6px 0 12px;
-  padding: 8px 10px;
-  border: 1px solid #6e5838;
-  background: #fff3d8;
-  font-size: 13px;
-}
-
 .network-banner {
   margin: 0 auto 10px;
   width: min(620px, 100%);

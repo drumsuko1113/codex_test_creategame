@@ -9,7 +9,7 @@ function readSource(relativePath: string): string {
 }
 
 describe("UI seat notation", () => {
-  test("uses 先手/後手 labels instead of Black/White in setup and game summaries", () => {
+  test("uses 先手/後手 labels instead of Black/White in setup UI", () => {
     const setupScreen = readSource("app/src/ui/SetupScreen.tsx");
     expect(setupScreen).toContain("先手");
     expect(setupScreen).toContain("後手");
@@ -17,7 +17,6 @@ describe("UI seat notation", () => {
     expect(setupScreen).not.toMatch(/>\s*white\s*</);
 
     const app = readSource("app/src/App.tsx");
-    expect(app).toContain("winnerLabel(session.seat)");
     expect(app).not.toContain("seat: ${session.seat}");
   });
 });
