@@ -1136,7 +1136,7 @@ export function App() {
 
   return (
     <main className="app">
-      <h1>Shogi Game</h1>
+      <h1>将棋倶楽部2.4</h1>
       {session ? (
         <p className="session-summary">
           {matchMode === "online"
