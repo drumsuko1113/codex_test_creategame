@@ -1,13 +1,15 @@
-﻿import { type BoardMove, type Piece } from "./types";
+import { isInLastRanks, isInPromotionZone } from "./orientation";
+import { type BoardMove, type Piece } from "./types";
 
 const PROMOTABLE_PIECES: Piece["kind"][] = ["rook", "bishop", "silver", "knight", "lance", "pawn"];
+const FORCE_PROMOTION_DEPTH: Partial<Record<Piece["kind"], number>> = {
+  pawn: 1,
+  lance: 1,
+  knight: 2,
+};
 
 export function canPromote(piece: Piece): boolean {
   return PROMOTABLE_PIECES.includes(piece.kind);
-}
-
-function isInPromotionZone(piece: Piece, y: number): boolean {
-  return piece.color === "black" ? y <= 2 : y >= 6;
 }
 
 export function canChoosePromotion(piece: Piece, move: BoardMove): boolean {
@@ -15,27 +17,16 @@ export function canChoosePromotion(piece: Piece, move: BoardMove): boolean {
     return false;
   }
 
-  return isInPromotionZone(piece, move.from.y) || isInPromotionZone(piece, move.to.y);
+  return isInPromotionZone(piece.color, move.from.y) || isInPromotionZone(piece.color, move.to.y);
 }
 
 export function shouldAutoPromote(piece: Piece, move: BoardMove): boolean {
-  if (piece.color === "black") {
-    if (piece.kind === "pawn" || piece.kind === "lance") {
-      return move.to.y === 0;
-    }
-    if (piece.kind === "knight") {
-      return move.to.y <= 1;
-    }
-  } else {
-    if (piece.kind === "pawn" || piece.kind === "lance") {
-      return move.to.y === 8;
-    }
-    if (piece.kind === "knight") {
-      return move.to.y >= 7;
-    }
+  const depth = FORCE_PROMOTION_DEPTH[piece.kind];
+  if (!depth) {
+    return false;
   }
 
-  return false;
+  return isInLastRanks(piece.color, move.to.y, depth);
 }
 
 export function resolvePromotion(

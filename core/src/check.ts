@@ -1,5 +1,6 @@
-﻿import { forEachBoardPosition } from "./board";
+import { forEachBoardPosition } from "./board";
 import { isMoveLegal } from "./moveValidator";
+import { oppositeColor } from "./orientation";
 import { type Color, type GameState, type Position } from "./types";
 
 export function findKingPosition(state: GameState, color: Color): Position | null {
@@ -26,7 +27,7 @@ export function isKingInCheck(state: GameState, kingColor: Color): boolean {
     return false;
   }
 
-  const attackerColor: Color = kingColor === "black" ? "white" : "black";
+  const attackerColor = oppositeColor(kingColor);
   const attackerState: GameState = {
     ...state,
     turn: attackerColor,
