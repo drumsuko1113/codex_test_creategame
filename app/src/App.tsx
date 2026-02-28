@@ -1134,6 +1134,10 @@ export function App() {
     return projectClockState(clockState, state.turn, clockTurnStartedAtMs, clockNowMs);
   }, [screenMode, matchMode, gameOver, clockState, state.turn, clockTurnStartedAtMs, clockNowMs]);
 
+  const boardPerspective: Color = playerSeat === "white" ? "white" : "black";
+  const topSideColor: Color = boardPerspective === "white" ? "black" : "white";
+  const bottomSideColor: Color = oppositeColor(topSideColor);
+
   return (
     <main className="app">
       <h1>Shogi Game</h1>
@@ -1191,14 +1195,14 @@ export function App() {
         <div className="hand-anchor hand-anchor-white">
           <Hand
             hands={state.hands}
-            color="white"
-            active={canOperateNow && playerSeat === "white"}
+            color={topSideColor}
+            active={canOperateNow && playerSeat === topSideColor}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
           <div className="clock-panel">
             <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(displayClockState.main.white, displayClockState.byo.white)}</p>
+            <p className="clock-main">{formatClockText(displayClockState.main[topSideColor], displayClockState.byo[topSideColor])}</p>
           </div>
           <section className="history-panel" aria-label="move history">
             <h2>棋譜</h2>
@@ -1216,18 +1220,19 @@ export function App() {
           legalTargetKeys={legalTargetKeys}
           checkedKing={checkedKing}
           interactive={canOperateNow}
+          perspective={boardPerspective}
           onSquareClick={onSquareClick}
         />
 
         <div className="hand-anchor hand-anchor-black">
           <div className="clock-panel">
             <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(displayClockState.main.black, displayClockState.byo.black)}</p>
+            <p className="clock-main">{formatClockText(displayClockState.main[bottomSideColor], displayClockState.byo[bottomSideColor])}</p>
           </div>
           <Hand
             hands={state.hands}
-            color="black"
-            active={canOperateNow && playerSeat === "black"}
+            color={bottomSideColor}
+            active={canOperateNow && playerSeat === bottomSideColor}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
