@@ -1,79 +1,93 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { makeRequestContext } from "./context";
+﻿import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readJsonBody } from "./http";
+import { makeRequestContext } from "./context";
 import { log } from "./logger";
 import { requireSessionAuth } from "./middleware";
 import { RateLimiter } from "./rateLimiter";
 import { RealtimeHub } from "./realtime";
 import { respond, respondError } from "./respond";
-import { ROUTE_JOIN, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
-import { InMemoryStore } from "./store";
-import type { CreateGameInput, JoinGameInput, Player } from "./types";
-import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput } from "./validators";
+import { ROUTE_JOIN, ROUTE_LOBBY_MATCH, ROUTE_ME, ROUTE_MOVE, ROUTE_RECORDS, ROUTE_RESIGN, ROUTE_SNAPSHOT } from "./routePatterns";
+import { createDefaultStore, type GameStore } from "./store";
+import type { Player } from "./types";
+import { isMoveRequestBody, isValidCreateGameInput, isValidJoinGameInput, isValidLobbyMatchInput } from "./validators";
 
-const store = new InMemoryStore();
-const rateLimiter = new RateLimiter(60_000, 120);
-const realtime = new RealtimeHub();
-
-type RequestContext = ReturnType<typeof makeRequestContext>;
-type ErrorResponse = { statusCode: number; message: string; responseCode?: string };
-
-const JOIN_ERROR_RESPONSES: Record<string, ErrorResponse> = {
-  GAME_NOT_FOUND: { statusCode: 404, message: "Game was not found" },
-  INVALID_JOIN_TOKEN: { statusCode: 401, message: "Join token is invalid" },
-  GAME_IS_FULL: { statusCode: 409, message: "Seat is unavailable" },
-  SEAT_ALREADY_TAKEN: { statusCode: 409, message: "Seat is unavailable" },
+type AppOptions = {
+  store?: GameStore;
 };
 
-const MOVE_ERROR_RESPONSES: Record<string, ErrorResponse> = {
-  GAME_NOT_FOUND: { statusCode: 404, message: "Game was not found" },
-  GAME_NOT_ACTIVE: { statusCode: 409, message: "Move cannot be applied in current game state" },
-  NOT_YOUR_TURN: { statusCode: 409, message: "Move cannot be applied in current game state" },
-  VERSION_CONFLICT: { statusCode: 409, message: "Move cannot be applied in current game state" },
+type ErrorRule = {
+  match: (code: string) => boolean;
+  statusCode: number;
+  message: string | ((code: string) => string);
+  responseCode?: string;
 };
 
-const RESIGN_ERROR_RESPONSES: Record<string, ErrorResponse> = {
-  GAME_NOT_FOUND: { statusCode: 404, message: "Game was not found" },
-  GAME_ALREADY_FINISHED: { statusCode: 409, message: "Game is already finished" },
-};
-
-function extractErrorCode(error: unknown, fallback = "UNKNOWN"): string {
+function getErrorCode(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-function matchGameId(url: string | undefined, routePattern: RegExp): string | null {
-  const matched = url?.match(routePattern);
-  return matched ? matched[1] : null;
+function exactCode(code: string): (value: string) => boolean {
+  return (value) => value === code;
 }
 
-function respondMappedError(
+function prefixCode(prefix: string): (value: string) => boolean {
+  return (value) => value.startsWith(prefix);
+}
+
+function respondIfMappedError(
   res: ServerResponse,
-  ctx: RequestContext,
+  ctx: ReturnType<typeof makeRequestContext>,
   code: string,
-  mapping: Record<string, ErrorResponse>,
-  meta?: { gameId?: string; guestId?: string },
+  meta: { gameId: string; guestId?: string },
+  rules: readonly ErrorRule[],
 ): boolean {
-  const errorResponse = mapping[code];
-  if (!errorResponse) {
+  const matched = rules.find((rule) => rule.match(code));
+  if (!matched) {
     return false;
   }
 
   respondError(
     res,
     ctx,
-    errorResponse.statusCode,
-    errorResponse.responseCode ?? code,
-    errorResponse.message,
-    meta,
+    matched.statusCode,
+    matched.responseCode ?? code,
+    typeof matched.message === "function" ? matched.message(code) : matched.message,
+    { gameId: meta.gameId, guestId: meta.guestId },
   );
   return true;
 }
 
-function authenticateActor(req: IncomingMessage, res: ServerResponse, gameId: string, ctx: RequestContext): Player | null {
+const JOIN_ERROR_RULES: readonly ErrorRule[] = [
+  { match: exactCode("GAME_NOT_FOUND"), statusCode: 404, message: "Game was not found" },
+  { match: exactCode("INVALID_JOIN_TOKEN"), statusCode: 401, message: "Join token is invalid" },
+  { match: exactCode("GAME_IS_FULL"), statusCode: 409, message: "Seat is unavailable" },
+  { match: exactCode("SEAT_ALREADY_TAKEN"), statusCode: 409, message: "Seat is unavailable" },
+];
+
+const MOVE_ERROR_RULES: readonly ErrorRule[] = [
+  { match: exactCode("GAME_NOT_FOUND"), statusCode: 404, message: "Game was not found" },
+  { match: exactCode("GAME_NOT_ACTIVE"), statusCode: 409, message: "Move cannot be applied in current game state" },
+  { match: exactCode("NOT_YOUR_TURN"), statusCode: 409, message: "Move cannot be applied in current game state" },
+  { match: exactCode("VERSION_CONFLICT"), statusCode: 409, message: "Move cannot be applied in current game state" },
+  { match: prefixCode("ILLEGAL_MOVE:"), statusCode: 400, message: (code) => code, responseCode: "ILLEGAL_MOVE" },
+];
+
+const RESIGN_ERROR_RULES: readonly ErrorRule[] = [
+  { match: exactCode("GAME_NOT_FOUND"), statusCode: 404, message: "Game was not found" },
+  { match: exactCode("GAME_ALREADY_FINISHED"), statusCode: 409, message: "Game is already finished" },
+];
+
+async function authenticateActor(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: GameStore,
+  gameId: string,
+  ctx: ReturnType<typeof makeRequestContext>,
+): Promise<Player | null> {
   try {
-    return requireSessionAuth(req, store, gameId);
+    return await requireSessionAuth(req, store, gameId);
   } catch (error) {
-    const code = extractErrorCode(error, "UNAUTHORIZED");
+    const code = getErrorCode(error, "UNAUTHORIZED");
     if (code === "UNAUTHORIZED") {
       respondError(res, ctx, 401, code, "Session token is missing or invalid", { gameId });
       return null;
@@ -82,7 +96,13 @@ function authenticateActor(req: IncomingMessage, res: ServerResponse, gameId: st
   }
 }
 
-async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handleRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: GameStore,
+  rateLimiter: RateLimiter,
+  realtime: RealtimeHub,
+): Promise<void> {
   const ctx = makeRequestContext(req);
 
   if (ctx.path.startsWith("/api/")) {
@@ -99,45 +119,61 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   if (req.method === "POST" && req.url === "/api/games") {
-    const body = await readJsonBody<CreateGameInput>(req);
+    const body = await readJsonBody<unknown>(req);
     if (!isValidCreateGameInput(body)) {
       respondError(res, ctx, 400, "INVALID_CREATE_GAME_PAYLOAD", "Invalid create game payload");
       return;
     }
 
-    const created = store.createGame(body);
+    const created = await store.createGame(body);
     respond(res, ctx, 201, created, { gameId: created.gameId, event: "game.created" });
     realtime.broadcast(created.gameId, "game.created", created);
     return;
   }
 
-  const joinGameId = matchGameId(req.url, ROUTE_JOIN);
-  if (req.method === "POST" && joinGameId) {
-    const body = await readJsonBody<JoinGameInput>(req);
+  const lobbyMatch = req.url?.match(ROUTE_LOBBY_MATCH);
+  if (req.method === "POST" && lobbyMatch) {
+    const body = await readJsonBody<unknown>(req);
+    if (!isValidLobbyMatchInput(body)) {
+      respondError(res, ctx, 400, "INVALID_MATCH_PAYLOAD", "Invalid lobby match payload");
+      return;
+    }
+
+    const matched = await store.matchByPassphrase(body);
+    respond(res, ctx, 200, matched, { gameId: matched.gameId, guestId: matched.guestId, event: "lobby.matched" });
+    realtime.broadcast(matched.gameId, "player.joined", matched);
+    return;
+  }
+
+  const joinMatch = req.url?.match(ROUTE_JOIN);
+  if (req.method === "POST" && joinMatch) {
+    const gameId = joinMatch[1];
+    const body = await readJsonBody<unknown>(req);
     if (!isValidJoinGameInput(body)) {
-      respondError(res, ctx, 400, "INVALID_JOIN_PAYLOAD", "Invalid join payload", { gameId: joinGameId });
+      respondError(res, ctx, 400, "INVALID_JOIN_PAYLOAD", "Invalid join payload", { gameId });
       return;
     }
 
     try {
-      const joined = store.joinGame(joinGameId, body);
-      respond(res, ctx, 200, joined, { gameId: joinGameId, guestId: joined.guestId, event: "game.joined" });
-      realtime.broadcast(joinGameId, "player.joined", joined);
+      const joined = await store.joinGame(gameId, body);
+      respond(res, ctx, 200, joined, { gameId, guestId: joined.guestId, event: "game.joined" });
+      realtime.broadcast(gameId, "player.joined", joined);
       return;
     } catch (error) {
-      const code = extractErrorCode(error);
-      if (respondMappedError(res, ctx, code, JOIN_ERROR_RESPONSES, { gameId: joinGameId })) {
+      const code = getErrorCode(error, "UNKNOWN");
+      if (respondIfMappedError(res, ctx, code, { gameId }, JOIN_ERROR_RULES)) {
         return;
       }
       throw error;
     }
   }
 
-  const recordsGameId = matchGameId(req.url, ROUTE_RECORDS);
-  if (req.method === "GET" && recordsGameId) {
-    const game = store.getGame(recordsGameId);
+  const recordsMatch = req.url?.match(ROUTE_RECORDS);
+  if (req.method === "GET" && recordsMatch) {
+    const gameId = recordsMatch[1];
+    const game = await store.getGame(gameId);
     if (!game) {
-      respondError(res, ctx, 404, "GAME_NOT_FOUND", "Game was not found", { gameId: recordsGameId });
+      respondError(res, ctx, 404, "GAME_NOT_FOUND", "Game was not found", { gameId });
       return;
     }
 
@@ -146,79 +182,96 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       ctx,
       200,
       {
-        gameId: recordsGameId,
+        gameId,
         status: game.status,
         winner: game.winner,
         resultType: game.resultType,
-        moves: store.getMoves(recordsGameId),
+        moves: await store.getMoves(gameId),
       },
-      { gameId: recordsGameId, event: "game.records" },
+      { gameId, event: "game.records" },
     );
     return;
   }
 
-  const snapshotGameId = matchGameId(req.url, ROUTE_SNAPSHOT);
-  if (req.method === "GET" && snapshotGameId) {
-    const game = store.getGame(snapshotGameId);
+  const getGameMatch = req.url?.match(ROUTE_SNAPSHOT);
+  if (req.method === "GET" && getGameMatch) {
+    const gameId = getGameMatch[1];
+    const game = await store.getGame(gameId);
     if (!game) {
-      respondError(res, ctx, 404, "GAME_NOT_FOUND", "Game was not found", { gameId: snapshotGameId });
+      respondError(res, ctx, 404, "GAME_NOT_FOUND", "Game was not found", { gameId });
       return;
     }
-
-    respond(res, ctx, 200, game, { gameId: snapshotGameId, event: "game.snapshot" });
+    respond(res, ctx, 200, game, { gameId, event: "game.snapshot" });
     return;
   }
 
-  const moveGameId = matchGameId(req.url, ROUTE_MOVE);
-  if (req.method === "POST" && moveGameId) {
-    const actor = authenticateActor(req, res, moveGameId, ctx);
+  const meMatch = req.url?.match(ROUTE_ME);
+  if (req.method === "GET" && meMatch) {
+    const gameId = meMatch[1];
+    const actor = await authenticateActor(req, res, store, gameId, ctx);
+    if (!actor) {
+      return;
+    }
+
+    respond(
+      res,
+      ctx,
+      200,
+      {
+        gameId,
+        guestId: actor.guestId,
+        seat: actor.seat,
+        displayName: actor.displayName,
+      },
+      { gameId, guestId: actor.guestId, event: "game.me" },
+    );
+    return;
+  }
+
+  const moveMatch = req.url?.match(ROUTE_MOVE);
+  if (req.method === "POST" && moveMatch) {
+    const gameId = moveMatch[1];
+    const actor = await authenticateActor(req, res, store, gameId, ctx);
     if (!actor) {
       return;
     }
 
     const body = await readJsonBody<unknown>(req);
     if (!isMoveRequestBody(body)) {
-      respondError(res, ctx, 400, "INVALID_MOVE_PAYLOAD", "Move payload is invalid", { gameId: moveGameId, guestId: actor.guestId });
+      respondError(res, ctx, 400, "INVALID_MOVE_PAYLOAD", "Move payload is invalid", { gameId, guestId: actor.guestId });
       return;
     }
 
     try {
-      const updated = store.submitMove(moveGameId, actor, body.move, body.expectedVersion);
-      respond(res, ctx, 200, updated, { gameId: moveGameId, guestId: actor.guestId, event: "game.moved" });
-      realtime.broadcast(moveGameId, "game.updated", updated);
+      const updated = await store.submitMove(gameId, actor, body.move, body.expectedVersion);
+      respond(res, ctx, 200, updated, { gameId, guestId: actor.guestId, event: "game.moved" });
+      realtime.broadcast(gameId, "game.updated", updated);
       return;
     } catch (error) {
-      const code = extractErrorCode(error);
-      const meta = { gameId: moveGameId, guestId: actor.guestId };
-
-      if (respondMappedError(res, ctx, code, MOVE_ERROR_RESPONSES, meta)) {
+      const code = getErrorCode(error, "UNKNOWN");
+      if (respondIfMappedError(res, ctx, code, { gameId, guestId: actor.guestId }, MOVE_ERROR_RULES)) {
         return;
       }
-
-      if (code.startsWith("ILLEGAL_MOVE:")) {
-        respondError(res, ctx, 400, "ILLEGAL_MOVE", code, meta);
-        return;
-      }
-
       throw error;
     }
   }
 
-  const resignGameId = matchGameId(req.url, ROUTE_RESIGN);
-  if (req.method === "POST" && resignGameId) {
-    const actor = authenticateActor(req, res, resignGameId, ctx);
+  const resignMatch = req.url?.match(ROUTE_RESIGN);
+  if (req.method === "POST" && resignMatch) {
+    const gameId = resignMatch[1];
+    const actor = await authenticateActor(req, res, store, gameId, ctx);
     if (!actor) {
       return;
     }
 
     try {
-      const updated = store.resign(resignGameId, actor);
-      respond(res, ctx, 200, updated, { gameId: resignGameId, guestId: actor.guestId, event: "game.resigned" });
-      realtime.broadcast(resignGameId, "game.finished", updated);
+      const updated = await store.resign(gameId, actor);
+      respond(res, ctx, 200, updated, { gameId, guestId: actor.guestId, event: "game.resigned" });
+      realtime.broadcast(gameId, "game.finished", updated);
       return;
     } catch (error) {
-      const code = extractErrorCode(error);
-      if (respondMappedError(res, ctx, code, RESIGN_ERROR_RESPONSES, { gameId: resignGameId, guestId: actor.guestId })) {
+      const code = getErrorCode(error, "UNKNOWN");
+      if (respondIfMappedError(res, ctx, code, { gameId, guestId: actor.guestId }, RESIGN_ERROR_RULES)) {
         return;
       }
       throw error;
@@ -228,11 +281,19 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   respondError(res, ctx, 404, "NOT_FOUND", "Route not found");
 }
 
-export function createApp() {
+export function createApp(options: AppOptions = {}) {
+  const store = options.store ?? createDefaultStore();
+  const rateLimiter = new RateLimiter(60_000, 120);
+  const realtime = new RealtimeHub();
+
   const server = createServer((req, res) => {
-    handleRequest(req, res).catch((error: unknown) => {
+    handleRequest(req, res, store, rateLimiter, realtime).catch((error: unknown) => {
       const ctx = makeRequestContext(req);
-      const message = error instanceof Error ? error.message : "Internal Server Error";
+      const message = getErrorCode(error, "Internal Server Error");
+      if (message === "INVALID_JSON") {
+        respondError(res, ctx, 400, "INVALID_JSON", "Malformed JSON payload");
+        return;
+      }
       log({
         level: "error",
         event: "http.error",
@@ -244,6 +305,22 @@ export function createApp() {
       respondError(res, ctx, 500, "INTERNAL_ERROR", message);
     });
   });
+
   realtime.attach(server);
+  server.on("close", () => {
+    if (!store.close) {
+      return;
+    }
+    store.close().catch((error: unknown) => {
+      log({
+        level: "error",
+        event: "store.close.error",
+        requestId: "server-close",
+        method: "SYSTEM",
+        path: "/",
+        message: getErrorCode(error, "STORE_CLOSE_ERROR"),
+      });
+    });
+  });
   return server;
 }
