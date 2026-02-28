@@ -1,25 +1,19 @@
-﻿import { isKingInCheck } from "./check";
-import { type Move, type GameState, type Piece } from "./types";
-import { isMoveLegal } from "./moveValidator";
+import { isKingInCheck } from "./check";
+import { isDropMove } from "./move";
+import { oppositeColor } from "./orientation";
 import { resolvePromotion } from "./promotion";
+import { isMoveLegal } from "./moveValidator";
+import { type GameState, type Move, type Piece } from "./types";
 
 export type ApplyResult =
   | { ok: true; value: GameState }
   | { ok: false; reason: string };
-
-function isDropMove(move: Move): move is Extract<Move, { drop: Piece["kind"] }> {
-  return "drop" in move;
-}
 
 function demote(piece: Piece): Piece {
   return {
     ...piece,
     promoted: false,
   };
-}
-
-function flipTurn(current: GameState["turn"]): GameState["turn"] {
-  return current === "black" ? "white" : "black";
 }
 
 function finalizeMove(state: GameState, nextBoard: GameState["board"], nextHands: GameState["hands"]): ApplyResult {
@@ -32,7 +26,7 @@ function finalizeMove(state: GameState, nextBoard: GameState["board"], nextHands
     value: {
       board: nextBoard,
       hands: nextHands,
-      turn: flipTurn(state.turn),
+      turn: oppositeColor(state.turn),
     },
   };
 }

@@ -1,10 +1,15 @@
-﻿import { randomUUID } from "node:crypto";
-import type { Move } from "../../core/src/types";
+import { randomUUID } from "node:crypto";
 import { applyMove } from "../../core/src/applyMove";
+import type { Move } from "../../core/src/types";
 import { createInitialGameState } from "../../core/src/initialPosition";
 import { createSessionToken, hashToken } from "./auth";
 import { issueManagedAuthToken } from "./managedAuth";
 import type { CreateGameInput, Game, JoinGameInput, MoveRecord, Player, Seat } from "./types";
+
+const CLOCK_KEYS: Record<Seat, { main: "mainSecondsBlack" | "mainSecondsWhite"; byo: "byoSecondsBlack" | "byoSecondsWhite" }> = {
+  black: { main: "mainSecondsBlack", byo: "byoSecondsBlack" },
+  white: { main: "mainSecondsWhite", byo: "byoSecondsWhite" },
+};
 
 function toIsoNow(): string {
   return new Date().toISOString();
@@ -26,24 +31,25 @@ export class InMemoryStore {
 
   private applyElapsedClock(game: Game, seat: Seat, nowMs: number): boolean {
     const elapsedSeconds = Math.ceil(Math.max(0, nowMs - game.turnStartedAtMs) / 1000);
+    const keys = CLOCK_KEYS[seat];
+    const remainingMain = game[keys.main];
 
-    if (seat === "black") {
-      if (elapsedSeconds <= game.mainSecondsBlack) {
-        game.mainSecondsBlack -= elapsedSeconds;
-        return false;
-      }
-      const overtime = elapsedSeconds - game.mainSecondsBlack;
-      game.mainSecondsBlack = 0;
-      return overtime > game.byoSecondsBlack;
-    }
-
-    if (elapsedSeconds <= game.mainSecondsWhite) {
-      game.mainSecondsWhite -= elapsedSeconds;
+    if (elapsedSeconds <= remainingMain) {
+      game[keys.main] = remainingMain - elapsedSeconds;
       return false;
     }
-    const overtime = elapsedSeconds - game.mainSecondsWhite;
-    game.mainSecondsWhite = 0;
-    return overtime > game.byoSecondsWhite;
+
+    const overtime = elapsedSeconds - remainingMain;
+    game[keys.main] = 0;
+    return overtime > game[keys.byo];
+  }
+
+  private finishGame(game: Game, resultType: Exclude<Game["resultType"], null>, winner: Seat): void {
+    game.status = "finished";
+    game.resultType = resultType;
+    game.winner = winner;
+    game.updatedAt = toIsoNow();
+    game.version += 1;
   }
 
   private settleTimeoutIfNeeded(game: Game): void {
@@ -57,11 +63,7 @@ export class InMemoryStore {
       return;
     }
 
-    game.status = "finished";
-    game.resultType = "timeout";
-    game.winner = oppositeSeat(game.turn);
-    game.updatedAt = toIsoNow();
-    game.version += 1;
+    this.finishGame(game, "timeout", oppositeSeat(game.turn));
   }
 
   createGame(input: CreateGameInput): { gameId: string; joinToken: string } {
@@ -192,8 +194,6 @@ export class InMemoryStore {
       throw new Error("NOT_YOUR_TURN");
     }
 
-    this.applyElapsedClock(game, actor.seat, Date.now());
-
     const result = applyMove(game.state, move);
     if (!result.ok) {
       throw new Error(`ILLEGAL_MOVE:${result.reason}`);
@@ -230,11 +230,7 @@ export class InMemoryStore {
       throw new Error("GAME_ALREADY_FINISHED");
     }
 
-    game.status = "finished";
-    game.resultType = "resign";
-    game.winner = oppositeSeat(actor.seat);
-    game.updatedAt = toIsoNow();
-    game.version += 1;
+    this.finishGame(game, "resign", oppositeSeat(actor.seat));
     return game;
   }
 

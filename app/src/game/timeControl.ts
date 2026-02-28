@@ -12,6 +12,14 @@ export type ClockState = {
 
 export const DEFAULT_TIME_CONTROL: TimeControl = { mainSeconds: 600, byoSeconds: 30 };
 
+function clampToNonNegativeInteger(value: number): number {
+  return Math.max(0, Math.floor(value));
+}
+
+function toTenSecondStep(value: number): number {
+  return Math.floor(value / 10) * 10;
+}
+
 export function createClockState(control: TimeControl): ClockState {
   return {
     main: { black: control.mainSeconds, white: control.mainSeconds },
@@ -36,7 +44,7 @@ export function formatClockText(mainSeconds: number, byoSeconds: number): string
 
 export function normalizeTimeControl(mainMinutes: number, byoSeconds: number): TimeControl {
   return {
-    mainSeconds: Math.max(0, Math.floor(mainMinutes)) * 60,
-    byoSeconds: Math.max(0, Math.floor(byoSeconds / 10) * 10),
+    mainSeconds: clampToNonNegativeInteger(mainMinutes) * 60,
+    byoSeconds: toTenSecondStep(clampToNonNegativeInteger(byoSeconds)),
   };
 }

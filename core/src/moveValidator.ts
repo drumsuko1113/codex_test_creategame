@@ -1,10 +1,10 @@
-﻿import { HAND_PIECE_KINDS } from "./constants";
 import { isInsideBoard } from "./board";
-import { type BoardMove, type BoardState, type Move, type GameState, type Piece } from "./types";
+import { HAND_PIECE_KINDS } from "./constants";
+import { isDropMove } from "./move";
+import { forwardDistance, isInLastRanks } from "./orientation";
+import { type BoardMove, type BoardState, type GameState, type Move, type Piece } from "./types";
 
-function isDropMove(move: Move): move is { to: { x: number; y: number }; drop: Piece["kind"] } {
-  return "drop" in move;
-}
+const GOLD_LIKE_PROMOTED_PIECES: Piece["kind"][] = ["pawn", "lance", "knight", "silver"];
 
 function isPathClear(board: BoardState, move: BoardMove): boolean {
   const dx = move.to.x - move.from.x;
@@ -24,11 +24,7 @@ function isPathClear(board: BoardState, move: BoardMove): boolean {
   return true;
 }
 
-function isGoldLikeMove(piece: Piece, move: BoardMove): boolean {
-  const dx = move.to.x - move.from.x;
-  const dy = move.to.y - move.from.y;
-  const forward = piece.color === "black" ? -dy : dy;
-
+function isGoldLikeMove(forward: number, dx: number): boolean {
   if (forward === 1 && Math.abs(dx) <= 1) {
     return true;
   }
@@ -40,80 +36,67 @@ function isGoldLikeMove(piece: Piece, move: BoardMove): boolean {
   return forward === -1 && dx === 0;
 }
 
-function isKingMove(move: BoardMove): boolean {
-  const dx = Math.abs(move.to.x - move.from.x);
-  const dy = Math.abs(move.to.y - move.from.y);
-  return dx <= 1 && dy <= 1;
+function isKingMove(dx: number, dy: number): boolean {
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  return absDx <= 1 && absDy <= 1;
 }
 
-function isRookMove(move: BoardMove): boolean {
-  const dx = Math.abs(move.to.x - move.from.x);
-  const dy = Math.abs(move.to.y - move.from.y);
-  return (dx === 0 || dy === 0) && !(dx === 0 && dy === 0);
+function isRookMove(dx: number, dy: number): boolean {
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  return (absDx === 0 || absDy === 0) && !(absDx === 0 && absDy === 0);
 }
 
-function isBishopMove(move: BoardMove): boolean {
-  const dx = Math.abs(move.to.x - move.from.x);
-  const dy = Math.abs(move.to.y - move.from.y);
-  return dx === dy && dx !== 0;
+function isBishopMove(dx: number, dy: number): boolean {
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  return absDx === absDy && absDx !== 0;
 }
 
 function isPieceMovePatternLegal(state: GameState, piece: Piece, move: BoardMove): boolean {
   const dx = move.to.x - move.from.x;
   const dy = move.to.y - move.from.y;
-  const forward = piece.color === "black" ? -dy : dy;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  const forward = forwardDistance(piece.color, move.from.y, move.to.y);
 
-  if (piece.promoted && (piece.kind === "pawn" || piece.kind === "lance" || piece.kind === "knight" || piece.kind === "silver")) {
-    return isGoldLikeMove(piece, move);
+  if (piece.promoted && GOLD_LIKE_PROMOTED_PIECES.includes(piece.kind)) {
+    return isGoldLikeMove(forward, dx);
   }
 
-  if (piece.kind === "king") {
-    return isKingMove(move);
-  }
-
-  if (piece.kind === "gold") {
-    return isGoldLikeMove(piece, move);
-  }
-
-  if (piece.kind === "silver") {
-    if (forward === 1 && Math.abs(dx) <= 1) {
-      return true;
-    }
-    return forward === -1 && Math.abs(dx) === 1;
-  }
-
-  if (piece.kind === "knight") {
-    return forward === 2 && Math.abs(dx) === 1;
-  }
-
-  if (piece.kind === "pawn") {
-    return dx === 0 && forward === 1;
-  }
-
-  if (piece.kind === "lance") {
-    return dx === 0 && forward > 0 && isPathClear(state.board, move);
-  }
-
-  if (piece.kind === "rook") {
-    if (isRookMove(move) && isPathClear(state.board, move)) {
-      return true;
-    }
-    return piece.promoted && Math.abs(dx) === 1 && Math.abs(dy) === 1;
-  }
-
-  if (piece.kind === "bishop") {
-    if (isBishopMove(move) && isPathClear(state.board, move)) {
-      return true;
-    }
-
-    if (!piece.promoted) {
+  switch (piece.kind) {
+    case "king":
+      return isKingMove(dx, dy);
+    case "gold":
+      return isGoldLikeMove(forward, dx);
+    case "silver":
+      if (forward === 1 && absDx <= 1) {
+        return true;
+      }
+      return forward === -1 && absDx === 1;
+    case "knight":
+      return forward === 2 && absDx === 1;
+    case "pawn":
+      return dx === 0 && forward === 1;
+    case "lance":
+      return dx === 0 && forward > 0 && isPathClear(state.board, move);
+    case "rook":
+      if (isRookMove(dx, dy) && isPathClear(state.board, move)) {
+        return true;
+      }
+      return piece.promoted && absDx === 1 && absDy === 1;
+    case "bishop":
+      if (isBishopMove(dx, dy) && isPathClear(state.board, move)) {
+        return true;
+      }
+      if (!piece.promoted) {
+        return false;
+      }
+      return (absDx === 1 && dy === 0) || (absDy === 1 && dx === 0);
+    default:
       return false;
-    }
-
-    return (Math.abs(dx) === 1 && dy === 0) || (Math.abs(dy) === 1 && dx === 0);
   }
-
-  return false;
 }
 
 function hasUnpromotedPawnInFile(state: GameState, fileX: number): boolean {
@@ -128,11 +111,11 @@ function hasUnpromotedPawnInFile(state: GameState, fileX: number): boolean {
 
 function canDropOnRank(pieceKind: Piece["kind"], color: GameState["turn"], y: number): boolean {
   if (pieceKind === "pawn" || pieceKind === "lance") {
-    return color === "black" ? y > 0 : y < 8;
+    return !isInLastRanks(color, y, 1);
   }
 
   if (pieceKind === "knight") {
-    return color === "black" ? y > 1 : y < 7;
+    return !isInLastRanks(color, y, 2);
   }
 
   return true;
