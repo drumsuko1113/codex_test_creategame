@@ -57,7 +57,7 @@ export function SetupScreen({
 }: SetupScreenProps) {
   return (
     <main className="app">
-      <h1>Shogi Game</h1>
+      <h1>将棋倶楽部2.4</h1>
       <section className="start-screen" aria-label="match setup">
         <h2>{setupMode === "online" ? "オンライン対局" : "Bot対局"}</h2>
         <div className="setup-options" aria-label="match mode toggle">
