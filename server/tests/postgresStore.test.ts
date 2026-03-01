@@ -17,12 +17,28 @@ describe("PostgresStore", () => {
     const first = await store.matchByPassphrase({ passphrase: "Room123", name: "first" });
     const second = await store.matchByPassphrase({ passphrase: "Room123", name: "second" });
     expect(second.gameId).toBe(first.gameId);
-    expect(first.seat).toBe("black");
-    expect(second.seat).toBe("white");
+    expect(["black", "white"]).toContain(first.seat);
+    expect(["black", "white"]).toContain(second.seat);
+    expect(second.seat).not.toBe(first.seat);
 
     const third = await store.matchByPassphrase({ passphrase: "Room123", name: "third" });
     expect(third.gameId).not.toBe(first.gameId);
-    expect(third.seat).toBe("black");
+    expect(["black", "white"]).toContain(third.seat);
+  });
+
+  test("uses random seat for first lobby player and assigns opposite to second player", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.9);
+    try {
+      const store = new PostgresStore(pool);
+
+      const first = await store.matchByPassphrase({ passphrase: "RandSeat", name: "first" });
+      const second = await store.matchByPassphrase({ passphrase: "RandSeat", name: "second" });
+
+      expect(first.seat).toBe("white");
+      expect(second.seat).toBe("black");
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   test("persists game state and move records across store re-instantiation", async () => {

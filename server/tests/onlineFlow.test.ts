@@ -35,8 +35,8 @@ describe("online match backend flow", () => {
       body: JSON.stringify({ passphrase: "Room123", name: "first" }),
     });
     expect(firstRes.status).toBe(200);
-    const first = (await firstRes.json()) as { gameId: string; seat: string };
-    expect(first.seat).toBe("black");
+    const first = (await firstRes.json()) as { gameId: string; seat: string; sessionToken: string };
+    expect(["black", "white"]).toContain(first.seat);
 
     const secondRes = await fetch(`${baseUrl}/api/lobby/match`, {
       method: "POST",
@@ -44,9 +44,24 @@ describe("online match backend flow", () => {
       body: JSON.stringify({ passphrase: "Room123", name: "second" }),
     });
     expect(secondRes.status).toBe(200);
-    const second = (await secondRes.json()) as { gameId: string; seat: string };
+    const second = (await secondRes.json()) as { gameId: string; seat: string; sessionToken: string };
     expect(second.gameId).toBe(first.gameId);
-    expect(second.seat).toBe("white");
+    expect(["black", "white"]).toContain(second.seat);
+    expect(second.seat).not.toBe(first.seat);
+
+    const firstMeRes = await fetch(`${baseUrl}/api/games/${first.gameId}/me`, {
+      headers: { authorization: `Bearer ${first.sessionToken}` },
+    });
+    expect(firstMeRes.status).toBe(200);
+    const firstMe = (await firstMeRes.json()) as { seat: string };
+    expect(firstMe.seat).toBe(first.seat);
+
+    const secondMeRes = await fetch(`${baseUrl}/api/games/${second.gameId}/me`, {
+      headers: { authorization: `Bearer ${second.sessionToken}` },
+    });
+    expect(secondMeRes.status).toBe(200);
+    const secondMe = (await secondMeRes.json()) as { seat: string };
+    expect(secondMe.seat).toBe(second.seat);
 
     const snapshotRes = await fetch(`${baseUrl}/api/games/${first.gameId}`);
     expect(snapshotRes.status).toBe(200);
@@ -76,7 +91,7 @@ describe("online match backend flow", () => {
     expect(thirdRes.status).toBe(200);
     const third = (await thirdRes.json()) as { gameId: string; seat: string };
     expect(third.gameId).not.toBe(first.gameId);
-    expect(third.seat).toBe("black");
+    expect(["black", "white"]).toContain(third.seat);
   });
 
   test("create -> join -> move -> resign", async () => {

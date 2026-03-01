@@ -150,6 +150,17 @@ function pickAvailableSeat(seats: readonly Seat[]): Seat | null {
   return null;
 }
 
+function pickRandomSeat(): Seat {
+  return Math.random() < 0.5 ? "black" : "white";
+}
+
+function pickLobbySeat(seats: readonly Seat[]): Seat | null {
+  if (seats.length === 0) {
+    return pickRandomSeat();
+  }
+  return pickAvailableSeat(seats);
+}
+
 function oppositeSeat(seat: Seat): Seat {
   return seat === "black" ? "white" : "black";
 }
@@ -572,7 +583,7 @@ export class InMemoryStore implements GameStore {
     }
 
     const players = this.playersByGame.get(targetGameId);
-    const seat = pickAvailableSeat(players?.map((player) => player.seat) ?? []);
+    const seat = pickLobbySeat(players?.map((player) => player.seat) ?? []);
     if (!seat) {
       const created = await this.createGame({
         mainMinutes: DEFAULT_MATCH_MAIN_MINUTES,
@@ -592,7 +603,7 @@ export class InMemoryStore implements GameStore {
     }
 
     const reloadedPlayers = this.playersByGame.get(targetGameId) ?? [];
-    const resolvedSeat = pickAvailableSeat(reloadedPlayers.map((player) => player.seat));
+    const resolvedSeat = pickLobbySeat(reloadedPlayers.map((player) => player.seat));
     if (!resolvedSeat) {
       throw new Error("GAME_IS_FULL");
     }
@@ -1042,11 +1053,14 @@ export class PostgresStore implements GameStore {
         [game.id],
       );
 
-      let seat = pickAvailableSeat(playersResult.rows.map((row) => row.seat));
+      let seat = pickLobbySeat(playersResult.rows.map((row) => row.seat));
       if (!seat) {
         game = await this.createMatchGame(client, passphraseHash);
         playersResult = { rows: [], rowCount: 0 };
-        seat = "black";
+        seat = pickLobbySeat([]);
+      }
+      if (!seat) {
+        throw new Error("GAME_IS_FULL");
       }
 
       const sessionToken = createSessionToken();
