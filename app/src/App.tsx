@@ -1200,10 +1200,18 @@ export function App() {
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
-          <div className="clock-panel">
-            <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(displayClockState.main[topSideColor], displayClockState.byo[topSideColor])}</p>
-          </div>
+
+
+
+
+
+
+          {matchMode === "online" ? (
+            <div className="clock-panel">
+              <p className="clock-title">{"\u6301\u3061\u6642\u9593"}</p>
+              <p className="clock-main">{formatClockText(displayClockState.main[topSideColor], displayClockState.byo[topSideColor])}</p>
+            </div>
+          ) : null}
           <section className="history-panel" aria-label="move history">
             <h2>棋譜</h2>
             <ol className="history-list">
@@ -1225,10 +1233,18 @@ export function App() {
         />
 
         <div className="hand-anchor hand-anchor-black">
-          <div className="clock-panel">
-            <p className="clock-title">持ち時間</p>
-            <p className="clock-main">{formatClockText(displayClockState.main[bottomSideColor], displayClockState.byo[bottomSideColor])}</p>
-          </div>
+          {matchMode === "online" ? (
+            <div className="clock-panel">
+              <p className="clock-title">{"\u6301\u3061\u6642\u9593"}</p>
+              <p className="clock-main">{formatClockText(displayClockState.main[bottomSideColor], displayClockState.byo[bottomSideColor])}</p>
+            </div>
+          ) : null}
+
+
+
+
+
+
           <Hand
             hands={state.hands}
             color={bottomSideColor}
