@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isSamePosition, positionToKey } from "../src/game/position";
+import { isSamePosition, positionToKey, toBoardPosition, toDisplayPosition } from "../src/game/position";
 
 describe("position helpers", () => {
   test("positionToKey creates stable coordinate key", () => {
@@ -11,5 +11,16 @@ describe("position helpers", () => {
     expect(isSamePosition({ x: 1, y: 2 }, { x: 1, y: 2 })).toBe(true);
     expect(isSamePosition({ x: 1, y: 2 }, { x: 2, y: 2 })).toBe(false);
     expect(isSamePosition({ x: 1, y: 2 }, { x: 1, y: 3 })).toBe(false);
+  });
+
+  test("keeps coordinates as-is for black perspective", () => {
+    const position = { x: 2, y: 6 };
+    expect(toBoardPosition(position, "black")).toEqual(position);
+    expect(toDisplayPosition(position, "black")).toEqual(position);
+  });
+
+  test("mirrors coordinates for white perspective", () => {
+    expect(toBoardPosition({ x: 0, y: 0 }, "white")).toEqual({ x: 8, y: 8 });
+    expect(toDisplayPosition({ x: 8, y: 8 }, "white")).toEqual({ x: 0, y: 0 });
   });
 });

@@ -1134,9 +1134,13 @@ export function App() {
     return projectClockState(clockState, state.turn, clockTurnStartedAtMs, clockNowMs);
   }, [screenMode, matchMode, gameOver, clockState, state.turn, clockTurnStartedAtMs, clockNowMs]);
 
+  const boardPerspective: Color = playerSeat === "white" ? "white" : "black";
+  const topSideColor: Color = boardPerspective === "white" ? "black" : "white";
+  const bottomSideColor: Color = oppositeColor(topSideColor);
+
   return (
     <main className="app">
-      <h1>Shogi Game</h1>
+      <h1>将棋倶楽部2.4</h1>
       {session ? (
         <p className="session-summary">
           {matchMode === "online"
@@ -1191,15 +1195,21 @@ export function App() {
         <div className="hand-anchor hand-anchor-white">
           <Hand
             hands={state.hands}
-            color="white"
-            active={canOperateNow && playerSeat === "white"}
+            color={topSideColor}
+            active={canOperateNow && playerSeat === topSideColor}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
+
+
+
+
+
+
           {matchMode === "online" ? (
             <div className="clock-panel">
-              <p className="clock-title">持ち時間</p>
-              <p className="clock-main">{formatClockText(displayClockState.main.white, displayClockState.byo.white)}</p>
+              <p className="clock-title">{"\u6301\u3061\u6642\u9593"}</p>
+              <p className="clock-main">{formatClockText(displayClockState.main[topSideColor], displayClockState.byo[topSideColor])}</p>
             </div>
           ) : null}
           <section className="history-panel" aria-label="move history">
@@ -1218,20 +1228,27 @@ export function App() {
           legalTargetKeys={legalTargetKeys}
           checkedKing={checkedKing}
           interactive={canOperateNow}
+          perspective={boardPerspective}
           onSquareClick={onSquareClick}
         />
 
         <div className="hand-anchor hand-anchor-black">
           {matchMode === "online" ? (
             <div className="clock-panel">
-              <p className="clock-title">持ち時間</p>
-              <p className="clock-main">{formatClockText(displayClockState.main.black, displayClockState.byo.black)}</p>
+              <p className="clock-title">{"\u6301\u3061\u6642\u9593"}</p>
+              <p className="clock-main">{formatClockText(displayClockState.main[bottomSideColor], displayClockState.byo[bottomSideColor])}</p>
             </div>
           ) : null}
+
+
+
+
+
+
           <Hand
             hands={state.hands}
-            color="black"
-            active={canOperateNow && playerSeat === "black"}
+            color={bottomSideColor}
+            active={canOperateNow && playerSeat === bottomSideColor}
             selectedDrop={selectedDrop}
             onSelectDrop={toggleDropSelection}
           />
