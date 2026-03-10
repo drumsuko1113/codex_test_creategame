@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyMove } from "../../core/src/applyMove";
 import { findKingPosition, isInCheck } from "../../core/src/check";
-import { isCheckmate } from "../../core/src/checkmate";
 import { createInitialGameState } from "../../core/src/initialPosition";
-import { generateLegalMoves } from "../../core/src/moveGenerator";
+import { generateLegalTargets, hasAnyLegalMove } from "../../core/src/moveGenerator";
 import { canChoosePromotion, shouldAutoPromote } from "../../core/src/promotion";
 import { type BoardMove, type Color, type GameState, type Move, type PieceKind, type Position } from "../../core/src/types";
 import { PIECE_SOUND_PATH } from "./assets";
@@ -135,6 +134,25 @@ export function App() {
     setSelectedDrop(null);
     setPendingPromotion(null);
   }, []);
+
+  const resetLocalGameState = useCallback(() => {
+    const nowMs = Date.now();
+    setState(initialState);
+    setClockState(createClockState(initialTimeControl));
+    setClockTurnStartedAtMs(nowMs);
+    setClockNowMs(nowMs);
+    setGameVersion(1);
+    latestVersionRef.current = 1;
+    setWinner(null);
+    setResultText(null);
+    setGameOver(false);
+    setShowRestartDialog(false);
+    setIsPaused(false);
+    setMoveHistory([]);
+    setGameMessage(null);
+    setNetworkBannerMessage(null);
+    clearSelections();
+  }, [clearSelections, initialState, initialTimeControl]);
 
   const onSetupModeChange = useCallback((mode: MatchMode) => {
     setSetupMode(mode);
@@ -422,21 +440,7 @@ export function App() {
       setMatchMode("online");
       setSetupMode("online");
       setScreenMode("game");
-      setIsPaused(false);
-      setMoveHistory([]);
-      setWinner(null);
-      setResultText(null);
-      setGameOver(false);
-      setShowRestartDialog(false);
-      setGameMessage(null);
-      setNetworkBannerMessage(null);
-      setState(initialState);
-      setClockState(createClockState(initialTimeControl));
-      setClockTurnStartedAtMs(Date.now());
-      setClockNowMs(Date.now());
-      setGameVersion(1);
-      latestVersionRef.current = 1;
-      clearSelections();
+      resetLocalGameState();
 
       const synced = await syncSnapshot(gameId, { showDialog: false });
       if (!synced) {
@@ -455,7 +459,7 @@ export function App() {
     } finally {
       setIsStartingSpectate(false);
     }
-  }, [clearSelections, initialState, initialTimeControl, replaceSpectateLocation, syncSnapshot]);
+  }, [replaceSpectateLocation, resetLocalGameState, syncSnapshot]);
 
   const onStartSpectate = useCallback(async () => {
     const validated = validateSpectateGameForm({ gameId: spectateGameId });
@@ -492,29 +496,15 @@ export function App() {
       setSpectatorGameId(null);
       setMatchMode("bot");
       setScreenMode("game");
-      setState(initialState);
-      setClockState(createClockState(initialTimeControl));
-      setClockTurnStartedAtMs(Date.now());
-      setClockNowMs(Date.now());
-      setGameVersion(1);
-      latestVersionRef.current = 1;
-      setWinner(null);
-      setResultText(null);
-      setGameOver(false);
-      setShowRestartDialog(false);
-      setIsPaused(false);
-      setMoveHistory([]);
-      setGameMessage(null);
-      setNetworkBannerMessage(null);
+      resetLocalGameState();
       setBotMessage(null);
       setSpectateMessage(null);
       setSpectateErrors([]);
       replaceSpectateLocation(null);
-      clearSelections();
     } finally {
       setIsStartingBot(false);
     }
-  }, [botName, botSeat, clearSelections, initialState, initialTimeControl, replaceSpectateLocation]);
+  }, [botName, botSeat, replaceSpectateLocation, resetLocalGameState]);
 
   useEffect(() => {
     if (!initialSpectateGameId || hasAutoStartedSpectateRef.current) {
@@ -707,30 +697,7 @@ export function App() {
       return [];
     }
 
-    const piece = state.board[selected.y][selected.x];
-    if (!piece || piece.color !== state.turn) {
-      return [];
-    }
-
-    const targets: Position[] = [];
-
-    for (let y = 0; y < 9; y += 1) {
-      for (let x = 0; x < 9; x += 1) {
-        if (x === selected.x && y === selected.y) {
-          continue;
-        }
-
-        const baseMove: BoardMove = { from: selected, to: { x, y } };
-        const normal = applyMove(state, baseMove).ok;
-        const promote = applyMove(state, { ...baseMove, promote: true }).ok;
-
-        if (normal || promote) {
-          targets.push({ x, y });
-        }
-      }
-    }
-
-    return targets;
+    return generateLegalTargets(state, selected);
   }, [canOperateNow, selected, selectedDrop, state]);
 
   const legalTargetKeys = useMemo(() => {
@@ -738,13 +705,14 @@ export function App() {
   }, [legalTargets]);
 
   const appendMoveHistory = useCallback(
-    (move: Move) => {
-      const previousTo = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1].to : null;
-      const text = formatMoveText(state, move, previousTo);
-      const moveNumber = moveHistory.length + 1;
-      setMoveHistory((prev) => [...prev, { id: moveNumber, text, to: move.to }]);
+    (baseState: GameState, move: Move) => {
+      setMoveHistory((prev) => {
+        const previousTo = prev.length > 0 ? prev[prev.length - 1].to : null;
+        const text = formatMoveText(baseState, move, previousTo);
+        return [...prev, { id: prev.length + 1, text, to: move.to }];
+      });
     },
-    [moveHistory, state],
+    [],
   );
 
   const playPieceSound = useCallback(() => {
@@ -756,12 +724,15 @@ export function App() {
   }, []);
 
   const resolveBotMatchOutcome = useCallback((nextState: GameState): boolean => {
-    const hasPlayableMove = generateLegalMoves(nextState).some((candidate) => applyMove(nextState, candidate).ok);
-    if (hasPlayableMove) {
+    if (hasAnyLegalMove(nextState)) {
+      setGameOver(false);
+      setShowRestartDialog(false);
+      setWinner(null);
+      setResultText(null);
       return false;
     }
 
-    if (isCheckmate(nextState)) {
+    if (isInCheck(nextState)) {
       const nextWinner = oppositeColor(nextState.turn);
       setWinner(nextWinner);
       setResultText(`${winnerLabel(nextWinner)}\u306e\u52dd\u3061\uff08\u8a70\u307f\uff09`);
@@ -775,19 +746,14 @@ export function App() {
     return true;
   }, []);
 
-  const submitMoveByBot = useCallback(
-    (move: Move) => {
-      if (screenMode !== "game" || matchMode !== "bot" || !canOperateNow) {
-        return;
-      }
-
-      const applied = applyMove(state, move);
+  const applyLocalMove = useCallback(
+    (baseState: GameState, move: Move): boolean => {
+      const applied = applyMove(baseState, move);
       if (!applied.ok) {
-        setGameMessage("\u4e0d\u6b63\u306a\u7740\u624b\u3067\u3059\u3002\u5165\u529b\u5185\u5bb9\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002");
-        return;
+        return false;
       }
 
-      appendMoveHistory(move);
+      appendMoveHistory(baseState, move);
       playPieceSound();
       setState(applied.value);
       setGameVersion((current) => {
@@ -796,16 +762,23 @@ export function App() {
         return next;
       });
       setGameMessage(null);
+      resolveBotMatchOutcome(applied.value);
+      return true;
+    },
+    [appendMoveHistory, playPieceSound, resolveBotMatchOutcome],
+  );
 
-      const ended = resolveBotMatchOutcome(applied.value);
-      if (!ended) {
-        setGameOver(false);
-        setShowRestartDialog(false);
-        setWinner(null);
-        setResultText(null);
+  const submitMoveByBot = useCallback(
+    (move: Move) => {
+      if (screenMode !== "game" || matchMode !== "bot" || !canOperateNow) {
+        return;
+      }
+
+      if (!applyLocalMove(state, move)) {
+        setGameMessage("\u4e0d\u6b63\u306a\u7740\u624b\u3067\u3059\u3002\u5165\u529b\u5185\u5bb9\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002");
       }
     },
-    [screenMode, matchMode, canOperateNow, state, appendMoveHistory, playPieceSound, resolveBotMatchOutcome],
+    [applyLocalMove, screenMode, matchMode, canOperateNow, state],
   );
 
   const submitMoveByApi = useCallback(
@@ -824,7 +797,7 @@ export function App() {
           move,
         });
 
-        appendMoveHistory(move);
+        appendMoveHistory(state, move);
         playPieceSound();
         applySnapshot(updated, { showDialog: true });
         setNetworkBannerMessage(null);
@@ -838,7 +811,7 @@ export function App() {
         setIsSubmittingMove(false);
       }
     },
-    [session, canOperateNow, gameVersion, appendMoveHistory, playPieceSound, applySnapshot, syncSnapshot, toGameErrorMessage],
+    [session, canOperateNow, gameVersion, appendMoveHistory, playPieceSound, applySnapshot, syncSnapshot, toGameErrorMessage, state],
   );
 
   const submitMoveByMode = useCallback(
@@ -933,41 +906,14 @@ export function App() {
     }
 
     const timerId = window.setTimeout(() => {
-      let selectedMove = chooseRandomMove(state);
-      if (selectedMove) {
-        const result = applyMove(state, selectedMove);
-        if (!result.ok) {
-          selectedMove = generateLegalMoves(state).find((candidate) => applyMove(state, candidate).ok) ?? null;
-        }
-      }
-
+      const selectedMove = chooseRandomMove(state);
       if (!selectedMove) {
         resolveBotMatchOutcome(state);
         return;
       }
 
-      const applied = applyMove(state, selectedMove);
-      if (!applied.ok) {
+      if (!applyLocalMove(state, selectedMove)) {
         setGameMessage("\u30dc\u30c3\u30c8\u306e\u7740\u624b\u751f\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002");
-        return;
-      }
-
-      appendMoveHistory(selectedMove);
-      playPieceSound();
-      setState(applied.value);
-      setGameVersion((current) => {
-        const next = current + 1;
-        latestVersionRef.current = next;
-        return next;
-      });
-      setGameMessage(null);
-
-      const ended = resolveBotMatchOutcome(applied.value);
-      if (!ended) {
-        setGameOver(false);
-        setShowRestartDialog(false);
-        setWinner(null);
-        setResultText(null);
       }
     }, 350);
 
@@ -985,8 +931,7 @@ export function App() {
     isSyncingSnapshot,
     botSeat,
     state,
-    appendMoveHistory,
-    playPieceSound,
+    applyLocalMove,
     resolveBotMatchOutcome,
   ]);
 
@@ -1006,19 +951,9 @@ export function App() {
     clearStoredSession();
     setSession(null);
     setSpectatorGameId(null);
-    setMoveHistory([]);
-    setWinner(null);
-    setResultText(null);
-    setGameOver(false);
-    setState(initialState);
-    setClockState(createClockState(initialTimeControl));
-    setClockTurnStartedAtMs(Date.now());
-    setClockNowMs(Date.now());
-    setGameVersion(1);
-    latestVersionRef.current = 1;
+    resetLocalGameState();
     replaceSpectateLocation(null);
-    clearSelections();
-  }, [clearSelections, initialState, initialTimeControl, replaceSpectateLocation]);
+  }, [replaceSpectateLocation, resetLocalGameState]);
 
   const resign = useCallback(async () => {
     if (screenMode !== "game" || gameOver || isPaused || isSubmittingResign || isSyncingSnapshot) {
@@ -1075,6 +1010,14 @@ export function App() {
     }
   }, [matchMode, onlineGameId, syncSnapshot]);
 
+  const displayClockState = useMemo(() => {
+    if (screenMode !== "game" || matchMode !== "online" || gameOver) {
+      return clockState;
+    }
+
+    return projectClockState(clockState, state.turn, clockTurnStartedAtMs, clockNowMs);
+  }, [screenMode, matchMode, gameOver, clockState, state.turn, clockTurnStartedAtMs, clockNowMs]);
+
   if (screenMode === "setup") {
     return (
       <SetupScreen
@@ -1125,14 +1068,6 @@ export function App() {
         : isSpectatorMode
           ? `観戦中: ${winnerLabel(state.turn)}の手番`
           : `手番: ${winnerLabel(state.turn)}`;
-
-  const displayClockState = useMemo(() => {
-    if (screenMode !== "game" || matchMode !== "online" || gameOver) {
-      return clockState;
-    }
-
-    return projectClockState(clockState, state.turn, clockTurnStartedAtMs, clockNowMs);
-  }, [screenMode, matchMode, gameOver, clockState, state.turn, clockTurnStartedAtMs, clockNowMs]);
 
   return (
     <main className="app">

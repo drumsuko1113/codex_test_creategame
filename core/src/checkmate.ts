@@ -1,5 +1,5 @@
-﻿import { isInCheck } from "./check";
-import { generateLegalMoves } from "./moveGenerator";
+import { isInCheck } from "./check";
+import { hasAnyPseudoLegalMove } from "./moveGenerator";
 import { type GameState } from "./types";
 
 export function isCheckmate(state: GameState): boolean {
@@ -7,5 +7,5 @@ export function isCheckmate(state: GameState): boolean {
     return false;
   }
 
-  return generateLegalMoves(state).length === 0;
+  return !hasAnyPseudoLegalMove(state);
 }

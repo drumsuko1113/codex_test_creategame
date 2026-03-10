@@ -121,4 +121,49 @@ describe("InMemoryStore clock handling", () => {
 
     nowSpy.mockRestore();
   });
+
+  test("deducts byo-yomi on submitMove after main time is exhausted", async () => {
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValue(1_000_000);
+
+    const store = new InMemoryStore();
+    const created = await store.createGame({ mainMinutes: 0, byoSeconds: 30 });
+    const black = await store.joinGame(created.gameId, {
+      name: "black",
+      seat: "black",
+      joinToken: created.joinToken,
+    });
+    await store.joinGame(created.gameId, {
+      name: "white",
+      seat: "white",
+      joinToken: created.joinToken,
+    });
+
+    const game = await store.getGame(created.gameId);
+    expect(game).not.toBeNull();
+    if (!game) {
+      nowSpy.mockRestore();
+      return;
+    }
+
+    const actor = await store.findPlayerByGuestId(created.gameId, black.guestId);
+    expect(actor).not.toBeNull();
+    if (!actor) {
+      nowSpy.mockRestore();
+      return;
+    }
+
+    nowSpy.mockReturnValue(1_005_000);
+    const updated = await store.submitMove(
+      created.gameId,
+      actor,
+      { from: { x: 0, y: 6 }, to: { x: 0, y: 5 } },
+      game.version,
+    );
+
+    expect(updated.mainSecondsBlack).toBe(0);
+    expect(updated.byoSecondsBlack).toBe(25);
+
+    nowSpy.mockRestore();
+  });
 });

@@ -107,6 +107,14 @@ export interface GameStore {
 const DEFAULT_MATCH_MAIN_MINUTES = 10;
 const DEFAULT_MATCH_BYO_SECONDS = 30;
 
+type InitialPersistedGameInput = {
+  gameId?: string;
+  nowMs: number;
+  mainMinutes: number;
+  byoSeconds: number;
+  joinTokenHash?: string;
+};
+
 function toIsoNow(): string {
   return new Date().toISOString();
 }
@@ -154,6 +162,30 @@ function oppositeSeat(seat: Seat): Seat {
   return seat === "black" ? "white" : "black";
 }
 
+function createInitialPersistedGame(input: InitialPersistedGameInput): PersistedGame {
+  const id = input.gameId ?? randomUUID();
+  const nowIso = new Date(input.nowMs).toISOString();
+  const initialState = createInitialGameState();
+
+  return {
+    id,
+    status: "waiting",
+    turn: "black",
+    state: initialState,
+    mainSecondsBlack: input.mainMinutes * 60,
+    mainSecondsWhite: input.mainMinutes * 60,
+    byoSecondsBlack: input.byoSeconds,
+    byoSecondsWhite: input.byoSeconds,
+    resultType: null,
+    winner: null,
+    version: 1,
+    turnStartedAtMs: input.nowMs,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    joinTokenHash: input.joinTokenHash ?? "",
+  };
+}
+
 type TurnClockProjection = {
   remainingMainSeconds: number;
   remainingByoSeconds: number;
@@ -198,6 +230,32 @@ function projectTurnClock(mainSeconds: number, byoSeconds: number, elapsedSecond
   };
 }
 
+function projectCurrentTurnClock(game: PersistedGame, elapsedSeconds: number): TurnClockProjection {
+  return game.turn === "black"
+    ? projectTurnClock(game.mainSecondsBlack, game.byoSecondsBlack, elapsedSeconds)
+    : projectTurnClock(game.mainSecondsWhite, game.byoSecondsWhite, elapsedSeconds);
+}
+
+function applyTurnClockProjection(game: PersistedGame, projected: TurnClockProjection, elapsedSeconds: number): void {
+  if (game.turn === "black") {
+    game.mainSecondsBlack = projected.remainingMainSeconds;
+    game.byoSecondsBlack = projected.remainingByoSeconds;
+  } else {
+    game.mainSecondsWhite = projected.remainingMainSeconds;
+    game.byoSecondsWhite = projected.remainingByoSeconds;
+  }
+
+  game.turnStartedAtMs += elapsedSeconds * 1000;
+}
+
+function markTimedOutGame(game: PersistedGame, nowMs: number): void {
+  game.status = "finished";
+  game.resultType = "timeout";
+  game.winner = oppositeSeat(game.turn);
+  game.updatedAt = new Date(nowMs).toISOString();
+  game.version += 1;
+}
+
 function projectClockForSnapshot(game: PersistedGame, nowMs: number): SnapshotClockProjection {
   const base: SnapshotClockProjection = {
     mainSecondsBlack: game.mainSecondsBlack,
@@ -217,25 +275,22 @@ function projectClockForSnapshot(game: PersistedGame, nowMs: number): SnapshotCl
     return base;
   }
 
-  if (game.turn === "black") {
-    const projected = projectTurnClock(game.mainSecondsBlack, game.byoSecondsBlack, elapsedSeconds);
-    return {
-      ...base,
-      mainSecondsBlack: projected.remainingMainSeconds,
-      byoSecondsBlack: projected.remainingByoSeconds,
-      turnStartedAtMs: game.turnStartedAtMs + elapsedSeconds * 1000,
-      timedOut: projected.timedOut,
-    };
-  }
-
-  const projected = projectTurnClock(game.mainSecondsWhite, game.byoSecondsWhite, elapsedSeconds);
-  return {
+  const projected = projectCurrentTurnClock(game, elapsedSeconds);
+  const snapshot: SnapshotClockProjection = {
     ...base,
-    mainSecondsWhite: projected.remainingMainSeconds,
-    byoSecondsWhite: projected.remainingByoSeconds,
     turnStartedAtMs: game.turnStartedAtMs + elapsedSeconds * 1000,
     timedOut: projected.timedOut,
   };
+
+  if (game.turn === "black") {
+    snapshot.mainSecondsBlack = projected.remainingMainSeconds;
+    snapshot.byoSecondsBlack = projected.remainingByoSeconds;
+  } else {
+    snapshot.mainSecondsWhite = projected.remainingMainSeconds;
+    snapshot.byoSecondsWhite = projected.remainingByoSeconds;
+  }
+
+  return snapshot;
 }
 
 function consumeElapsedClock(game: PersistedGame, nowMs: number): boolean {
@@ -248,27 +303,13 @@ function consumeElapsedClock(game: PersistedGame, nowMs: number): boolean {
     return false;
   }
 
-  if (game.turn === "black") {
-    const projected = projectTurnClock(game.mainSecondsBlack, game.byoSecondsBlack, elapsedSeconds);
-    game.mainSecondsBlack = projected.remainingMainSeconds;
-    game.turnStartedAtMs += elapsedSeconds * 1000;
-    if (!projected.timedOut) {
-      return false;
-    }
-  } else {
-    const projected = projectTurnClock(game.mainSecondsWhite, game.byoSecondsWhite, elapsedSeconds);
-    game.mainSecondsWhite = projected.remainingMainSeconds;
-    game.turnStartedAtMs += elapsedSeconds * 1000;
-    if (!projected.timedOut) {
-      return false;
-    }
+  const projected = projectCurrentTurnClock(game, elapsedSeconds);
+  applyTurnClockProjection(game, projected, elapsedSeconds);
+  if (!projected.timedOut) {
+    return false;
   }
 
-  game.status = "finished";
-  game.resultType = "timeout";
-  game.winner = oppositeSeat(game.turn);
-  game.updatedAt = new Date(nowMs).toISOString();
-  game.version += 1;
+  markTimedOutGame(game, nowMs);
   return true;
 }
 
@@ -280,12 +321,10 @@ function settleTimeoutIfNeeded(game: PersistedGame, nowMs: number): boolean {
 
   game.mainSecondsBlack = projected.mainSecondsBlack;
   game.mainSecondsWhite = projected.mainSecondsWhite;
+  game.byoSecondsBlack = projected.byoSecondsBlack;
+  game.byoSecondsWhite = projected.byoSecondsWhite;
   game.turnStartedAtMs = projected.turnStartedAtMs;
-  game.status = "finished";
-  game.resultType = "timeout";
-  game.winner = oppositeSeat(game.turn);
-  game.updatedAt = new Date(nowMs).toISOString();
-  game.version += 1;
+  markTimedOutGame(game, nowMs);
   return true;
 }
 
@@ -437,6 +476,8 @@ export class InMemoryStore implements GameStore {
 
     game.mainSecondsBlack = snapshot.mainSecondsBlack;
     game.mainSecondsWhite = snapshot.mainSecondsWhite;
+    game.byoSecondsBlack = snapshot.byoSecondsBlack;
+    game.byoSecondsWhite = snapshot.byoSecondsWhite;
     game.turnStartedAtMs = snapshot.turnStartedAtMs;
     game.status = snapshot.status;
     game.resultType = snapshot.resultType;
@@ -451,6 +492,8 @@ export class InMemoryStore implements GameStore {
 
     game.mainSecondsBlack = snapshot.mainSecondsBlack;
     game.mainSecondsWhite = snapshot.mainSecondsWhite;
+    game.byoSecondsBlack = snapshot.byoSecondsBlack;
+    game.byoSecondsWhite = snapshot.byoSecondsWhite;
     game.turnStartedAtMs = snapshot.turnStartedAtMs;
     if (snapshot.status === "finished") {
       game.status = snapshot.status;
@@ -464,24 +507,14 @@ export class InMemoryStore implements GameStore {
   async createGame(input: CreateGameInput): Promise<{ gameId: string; joinToken: string }> {
     const gameId = randomUUID();
     const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
-
-    this.games.set(gameId, {
-      id: gameId,
-      status: "waiting",
-      turn: "black",
-      state: createInitialGameState(),
-      mainSecondsBlack: input.mainMinutes * 60,
-      mainSecondsWhite: input.mainMinutes * 60,
-      byoSecondsBlack: input.byoSeconds,
-      byoSecondsWhite: input.byoSeconds,
-      resultType: null,
-      winner: null,
-      version: 1,
-      turnStartedAtMs: nowMs,
-      createdAt: nowIso,
-      updatedAt: nowIso,
+    const snapshot = createInitialPersistedGame({
+      gameId,
+      nowMs,
+      mainMinutes: input.mainMinutes,
+      byoSeconds: input.byoSeconds,
     });
+
+    this.games.set(gameId, toGame(snapshot));
 
     const joinToken = createJoinToken();
     this.joinTokens.set(gameId, joinToken);
@@ -819,10 +852,13 @@ export class PostgresStore implements GameStore {
   }
 
   private async createMatchGame(client: Queryable, passphraseHash: string): Promise<PersistedGame> {
-    const gameId = randomUUID();
     const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
-    const mainSeconds = DEFAULT_MATCH_MAIN_MINUTES * 60;
+    const snapshot = createInitialPersistedGame({
+      nowMs,
+      mainMinutes: DEFAULT_MATCH_MAIN_MINUTES,
+      byoSeconds: DEFAULT_MATCH_BYO_SECONDS,
+      joinTokenHash: passphraseHash,
+    });
 
     await client.query(
       `INSERT INTO games (
@@ -845,33 +881,17 @@ export class PostgresStore implements GameStore {
          $1, 'waiting', 'black', $2::jsonb, $3, $3, $4, $4, NULL, NULL, 1, $5, $6, $7, $7
        )`,
       [
-        gameId,
-        JSON.stringify(createInitialGameState()),
-        mainSeconds,
-        DEFAULT_MATCH_BYO_SECONDS,
-        passphraseHash,
-        nowMs,
-        nowIso,
+        snapshot.id,
+        JSON.stringify(snapshot.state),
+        snapshot.mainSecondsBlack,
+        snapshot.byoSecondsBlack,
+        snapshot.joinTokenHash,
+        snapshot.turnStartedAtMs,
+        snapshot.createdAt,
       ],
     );
 
-    return {
-      id: gameId,
-      status: "waiting",
-      turn: "black",
-      state: createInitialGameState(),
-      mainSecondsBlack: mainSeconds,
-      mainSecondsWhite: mainSeconds,
-      byoSecondsBlack: DEFAULT_MATCH_BYO_SECONDS,
-      byoSecondsWhite: DEFAULT_MATCH_BYO_SECONDS,
-      resultType: null,
-      winner: null,
-      version: 1,
-      turnStartedAtMs: nowMs,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      joinTokenHash: passphraseHash,
-    };
+    return snapshot;
   }
 
   private async updateGame(client: Queryable, game: PersistedGame, previousVersion: number): Promise<void> {
@@ -919,7 +939,13 @@ export class PostgresStore implements GameStore {
     const gameId = randomUUID();
     const joinToken = createJoinToken();
     const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
+    const snapshot = createInitialPersistedGame({
+      gameId,
+      nowMs,
+      mainMinutes: input.mainMinutes,
+      byoSeconds: input.byoSeconds,
+      joinTokenHash: hashToken(joinToken),
+    });
 
     await this.pool.query(
       `INSERT INTO games (
@@ -942,13 +968,13 @@ export class PostgresStore implements GameStore {
          $1, 'waiting', 'black', $2::jsonb, $3, $3, $4, $4, NULL, NULL, 1, $5, $6, $7, $7
        )`,
       [
-        gameId,
-        JSON.stringify(createInitialGameState()),
-        input.mainMinutes * 60,
-        input.byoSeconds,
-        hashToken(joinToken),
-        nowMs,
-        nowIso,
+        snapshot.id,
+        JSON.stringify(snapshot.state),
+        snapshot.mainSecondsBlack,
+        snapshot.byoSecondsBlack,
+        snapshot.joinTokenHash,
+        snapshot.turnStartedAtMs,
+        snapshot.createdAt,
       ],
     );
 
