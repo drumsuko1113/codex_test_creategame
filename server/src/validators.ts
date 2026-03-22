@@ -1,3 +1,5 @@
+import { BOARD_SIZE, HAND_PIECE_KINDS } from "../../core/src/constants";
+import { isValidLobbyPassphrase, isValidPlayerName } from "../../core/src/lobbyRules";
 import type { Move } from "../../core/src/types";
 import type { CreateGameInput, JoinGameInput, LobbyMatchInput } from "./types";
 
@@ -9,17 +11,13 @@ export type MoveRequestBody = {
 type JsonRecord = Record<string, unknown>;
 
 const BOARD_MIN_INDEX = 0;
-const BOARD_MAX_INDEX = 8;
+const BOARD_MAX_INDEX = BOARD_SIZE - 1;
 const MIN_MAIN_MINUTES = 1;
 const MIN_BYO_SECONDS = 0;
 const BYO_SECONDS_STEP = 10;
-const MIN_PLAYER_NAME_LENGTH = 2;
-const MAX_PLAYER_NAME_LENGTH = 20;
 const MIN_JOIN_TOKEN_LENGTH = 16;
-const MAX_PASSPHRASE_LENGTH = 8;
 const VALID_SEATS = new Set<JoinGameInput["seat"]>(["black", "white"]);
-const DROP_KINDS = new Set(["rook", "bishop", "gold", "silver", "knight", "lance", "pawn"]);
-const PASSPHRASE_PATTERN = /^[A-Za-z0-9]+$/;
+const DROP_KINDS = new Set(HAND_PIECE_KINDS);
 
 function isRecord(input: unknown): input is JsonRecord {
   return !!input && typeof input === "object";
@@ -80,7 +78,7 @@ export function isValidJoinGameInput(input: unknown): input is JoinGameInput {
     return false;
   }
 
-  if (!isValidPlayerName(input.name)) {
+  if (!isValidPlayerNameValue(input.name)) {
     return false;
   }
 
@@ -91,13 +89,8 @@ export function isValidJoinGameInput(input: unknown): input is JoinGameInput {
   return typeof input.joinToken === "string" && input.joinToken.length >= MIN_JOIN_TOKEN_LENGTH;
 }
 
-function isValidPlayerName(name: unknown): boolean {
-  if (typeof name !== "string") {
-    return false;
-  }
-
-  const trimmed = name.trim();
-  return trimmed.length >= MIN_PLAYER_NAME_LENGTH && trimmed.length <= MAX_PLAYER_NAME_LENGTH;
+function isValidPlayerNameValue(name: unknown): boolean {
+  return typeof name === "string" && isValidPlayerName(name);
 }
 
 export function isValidLobbyMatchInput(input: unknown): input is LobbyMatchInput {
@@ -105,7 +98,7 @@ export function isValidLobbyMatchInput(input: unknown): input is LobbyMatchInput
     return false;
   }
 
-  if (!isValidPlayerName(input.name)) {
+  if (!isValidPlayerNameValue(input.name)) {
     return false;
   }
 
@@ -113,8 +106,7 @@ export function isValidLobbyMatchInput(input: unknown): input is LobbyMatchInput
     return false;
   }
 
-  const passphrase = input.passphrase.trim();
-  return passphrase.length > 0 && passphrase.length <= MAX_PASSPHRASE_LENGTH && PASSPHRASE_PATTERN.test(passphrase);
+  return isValidLobbyPassphrase(input.passphrase);
 }
 
 export function isMoveRequestBody(input: unknown): input is MoveRequestBody {

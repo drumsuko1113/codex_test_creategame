@@ -136,6 +136,25 @@ export function App() {
     setPendingPromotion(null);
   }, []);
 
+  const resetGameRuntimeState = useCallback(() => {
+    const now = Date.now();
+    setState(initialState);
+    setClockState(createClockState(initialTimeControl));
+    setClockTurnStartedAtMs(now);
+    setClockNowMs(now);
+    setGameVersion(1);
+    latestVersionRef.current = 1;
+    setMoveHistory([]);
+    setWinner(null);
+    setResultText(null);
+    setGameOver(false);
+    setShowRestartDialog(false);
+    setIsPaused(false);
+    setGameMessage(null);
+    setNetworkBannerMessage(null);
+    clearSelections();
+  }, [clearSelections, initialState, initialTimeControl]);
+
   const onSetupModeChange = useCallback((mode: MatchMode) => {
     setSetupMode(mode);
     setJoinErrors([]);
@@ -422,21 +441,7 @@ export function App() {
       setMatchMode("online");
       setSetupMode("online");
       setScreenMode("game");
-      setIsPaused(false);
-      setMoveHistory([]);
-      setWinner(null);
-      setResultText(null);
-      setGameOver(false);
-      setShowRestartDialog(false);
-      setGameMessage(null);
-      setNetworkBannerMessage(null);
-      setState(initialState);
-      setClockState(createClockState(initialTimeControl));
-      setClockTurnStartedAtMs(Date.now());
-      setClockNowMs(Date.now());
-      setGameVersion(1);
-      latestVersionRef.current = 1;
-      clearSelections();
+      resetGameRuntimeState();
 
       const synced = await syncSnapshot(gameId, { showDialog: false });
       if (!synced) {
@@ -455,7 +460,7 @@ export function App() {
     } finally {
       setIsStartingSpectate(false);
     }
-  }, [clearSelections, initialState, initialTimeControl, replaceSpectateLocation, syncSnapshot]);
+  }, [replaceSpectateLocation, resetGameRuntimeState, syncSnapshot]);
 
   const onStartSpectate = useCallback(async () => {
     const validated = validateSpectateGameForm({ gameId: spectateGameId });
@@ -492,29 +497,15 @@ export function App() {
       setSpectatorGameId(null);
       setMatchMode("bot");
       setScreenMode("game");
-      setState(initialState);
-      setClockState(createClockState(initialTimeControl));
-      setClockTurnStartedAtMs(Date.now());
-      setClockNowMs(Date.now());
-      setGameVersion(1);
-      latestVersionRef.current = 1;
-      setWinner(null);
-      setResultText(null);
-      setGameOver(false);
-      setShowRestartDialog(false);
-      setIsPaused(false);
-      setMoveHistory([]);
-      setGameMessage(null);
-      setNetworkBannerMessage(null);
+      resetGameRuntimeState();
       setBotMessage(null);
       setSpectateMessage(null);
       setSpectateErrors([]);
       replaceSpectateLocation(null);
-      clearSelections();
     } finally {
       setIsStartingBot(false);
     }
-  }, [botName, botSeat, clearSelections, initialState, initialTimeControl, replaceSpectateLocation]);
+  }, [botName, botSeat, replaceSpectateLocation, resetGameRuntimeState]);
 
   useEffect(() => {
     if (!initialSpectateGameId || hasAutoStartedSpectateRef.current) {
@@ -994,10 +985,6 @@ export function App() {
     setScreenMode("setup");
     setSetupMode("online");
     setMatchMode("online");
-    setShowRestartDialog(false);
-    setIsPaused(false);
-    setGameMessage(null);
-    setNetworkBannerMessage(null);
     setBotMessage(null);
     setSpectateMessage(null);
     setSpectateErrors([]);
@@ -1006,19 +993,9 @@ export function App() {
     clearStoredSession();
     setSession(null);
     setSpectatorGameId(null);
-    setMoveHistory([]);
-    setWinner(null);
-    setResultText(null);
-    setGameOver(false);
-    setState(initialState);
-    setClockState(createClockState(initialTimeControl));
-    setClockTurnStartedAtMs(Date.now());
-    setClockNowMs(Date.now());
-    setGameVersion(1);
-    latestVersionRef.current = 1;
+    resetGameRuntimeState();
     replaceSpectateLocation(null);
-    clearSelections();
-  }, [clearSelections, initialState, initialTimeControl, replaceSpectateLocation]);
+  }, [replaceSpectateLocation, resetGameRuntimeState]);
 
   const resign = useCallback(async () => {
     if (screenMode !== "game" || gameOver || isPaused || isSubmittingResign || isSyncingSnapshot) {

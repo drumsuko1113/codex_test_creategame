@@ -1,12 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-
-function readSource(relativePath: string): string {
-  return readFileSync(join(process.cwd(), relativePath), "utf8")
-    .replace(/^\uFEFF/, "")
-    .replace(/\r\n/g, "\n");
-}
+import { readSource } from "./support/sourceReader";
 
 describe("bot clock UI", () => {
   test("renders both clock panels only in online mode", () => {

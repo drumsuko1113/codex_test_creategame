@@ -1,12 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-
-function readSource(relativePath: string): string {
-  return readFileSync(join(process.cwd(), relativePath), "utf8")
-    .replace(/^\uFEFF/, "")
-    .replace(/\r\n/g, "\n");
-}
+import { readSource } from "./support/sourceReader";
 
 describe("UI seat notation", () => {
   test("uses 先手/後手 labels instead of Black/White in setup UI", () => {
