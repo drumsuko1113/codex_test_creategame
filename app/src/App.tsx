@@ -1038,7 +1038,7 @@ export function App() {
     } finally {
       setIsSubmittingResign(false);
     }
-  }, [screenMode, gameOver, isPaused, isSubmittingResign, isSyncingSnapshot, moveHistory.length, matchMode, botSeat, session, state.turn, applySnapshot, syncSnapshot, toGameErrorMessage]);
+  }, [screenMode, gameOver, isPaused, isSubmittingResign, isSyncingSnapshot, moveHistory.length, matchMode, botSeat, session, state.turn, applySnapshot, syncSnapshot, setNetworkBannerFromError, toGameErrorMessage]);
 
   const retrySync = useCallback(async () => {
     if (matchMode !== "online" || !onlineGameId) {
