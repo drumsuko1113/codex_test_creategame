@@ -1,14 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-
-function readGlobalCss(): string {
-  return readFileSync(join(process.cwd(), "app/src/styles/globals.css"), "utf8");
-}
+import { readSource } from "./support/sourceReader";
 
 describe("board stability css", () => {
   test("keeps move history viewport height fixed to avoid move-time layout shifts", () => {
-    const css = readGlobalCss().replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+    const css = readSource("app/src/styles/globals.css");
     const match = css.match(/\.history-list\s*\{([\s\S]*?)\}/);
     expect(match).not.toBeNull();
     const block = match?.[1] ?? "";

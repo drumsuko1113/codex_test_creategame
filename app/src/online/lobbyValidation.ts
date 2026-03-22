@@ -1,6 +1,6 @@
-type Seat = "black" | "white";
+import { isValidLobbyPassphrase, isValidPlayerName } from "../../../core/src/lobbyRules";
 
-const PASS_PHRASE_PATTERN = /^[A-Za-z0-9]{1,8}$/;
+type Seat = "black" | "white";
 
 export type CreateGameFormInput = {
   mainMinutes: string;
@@ -43,11 +43,6 @@ function toInteger(value: string): number | null {
   return Number.isInteger(parsed) ? parsed : null;
 }
 
-function hasValidName(name: string): boolean {
-  const trimmed = name.trim();
-  return trimmed.length >= 2 && trimmed.length <= 20;
-}
-
 export function validateCreateGameForm(input: CreateGameFormInput): ValidationResult<{ mainMinutes: number; byoSeconds: number }> {
   const errors: string[] = [];
   const mainMinutes = toInteger(input.mainMinutes);
@@ -87,7 +82,7 @@ export function validateJoinGameForm(
   if (!joinToken) {
     errors.push("joinTokenを入力してください。");
   }
-  if (!hasValidName(name)) {
+  if (!isValidPlayerName(name)) {
     errors.push("表示名は2〜20文字で入力してください。");
   }
 
@@ -113,11 +108,11 @@ export function validateMatchLobbyForm(input: MatchLobbyFormInput): ValidationRe
 
   if (!passphrase) {
     errors.push("合言葉を入力してください。");
-  } else if (!PASS_PHRASE_PATTERN.test(passphrase)) {
+  } else if (!isValidLobbyPassphrase(passphrase)) {
     errors.push("合言葉は半角英数字8文字以内で入力してください。");
   }
 
-  if (!hasValidName(name)) {
+  if (!isValidPlayerName(name)) {
     errors.push("表示名は2〜20文字で入力してください。");
   }
 

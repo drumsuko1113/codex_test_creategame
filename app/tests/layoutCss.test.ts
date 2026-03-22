@@ -1,14 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-
-function readGlobalCss(): string {
-  return readFileSync(join(process.cwd(), "app/src/styles/globals.css"), "utf8");
-}
+import { readSource } from "./support/sourceReader";
 
 describe("game layout css", () => {
   test("keeps board and hand anchors fixed even on narrow screens", () => {
-    const css = readGlobalCss().replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+    const css = readSource("app/src/styles/globals.css");
     expect(css).toMatch(/\.hand-anchor\s*\{[\s\S]*?position:\s*absolute;/);
 
     const narrowMediaStart = css.indexOf("@media (max-width: 980px) {");

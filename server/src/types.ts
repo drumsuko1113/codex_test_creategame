@@ -1,5 +1,4 @@
-import type { GameState } from "../../core/src/types";
-import type { Move } from "../../core/src/types";
+import type { GameState, Move } from "../../core/src/types";
 
 export type Seat = "black" | "white";
 export type GameStatus = "waiting" | "active" | "finished";
