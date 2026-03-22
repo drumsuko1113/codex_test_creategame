@@ -1,0 +1,9 @@
+{
+  "defaultMode": "bypassPermissions",
+  "permissions": {
+    "deny": [
+      "Bash(git push*)",
+      "Bash(git remote*)"
+    ]
+  }
+}
