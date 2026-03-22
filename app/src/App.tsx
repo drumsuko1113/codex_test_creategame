@@ -1030,7 +1030,7 @@ export function App() {
       applySnapshot(updated, { showDialog: true });
       setNetworkBannerMessage(null);
     } catch (error) {
-      if (error instanceof ApiClientError && error.code === "GAME_ALREADY_FINISHED") {
+      if (error instanceof ApiClientError && error.code === "GAME_ALREADY_FINISHED" && session) {
         await syncSnapshot(session.gameId, { showDialog: false });
       }
       setNetworkBannerFromError(error);
