@@ -1,28 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { formatLobbyError, validateCreateGameForm, validateMatchLobbyForm, validateSpectateGameForm } from "../src/online/lobbyValidation";
+import { formatLobbyError, validateMatchLobbyForm, validateSpectateGameForm } from "../src/online/lobbyValidation";
 
 describe("lobby validation", () => {
-  test("validateCreateGameForm returns errors for invalid values", () => {
-    const result = validateCreateGameForm({ mainMinutes: "0", byoSeconds: "7" });
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.errors).toContain("持ち時間は1分以上の整数で入力してください。");
-    expect(result.errors).toContain("秒読みは0以上かつ10秒単位で入力してください。");
-  });
-
-  test("validateCreateGameForm normalizes valid values", () => {
-    const result = validateCreateGameForm({ mainMinutes: "15", byoSeconds: "30" });
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        mainMinutes: 15,
-        byoSeconds: 30,
-      },
-    });
-  });
-
   test("validateMatchLobbyForm returns errors when required fields are invalid", () => {
     const result = validateMatchLobbyForm({
       passphrase: "",

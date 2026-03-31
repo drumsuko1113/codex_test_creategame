@@ -1,7 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import type { Move, GameState } from "../../core/src/types";
 import { applyMove } from "../../core/src/applyMove";
@@ -9,82 +6,15 @@ import { createInitialGameState } from "../../core/src/initialPosition";
 import { createSessionToken, hashToken } from "./auth";
 import { issueManagedAuthToken } from "./managedAuth";
 import type { CreateGameInput, Game, JoinGameInput, LobbyMatchInput, LobbyMatchResult, MoveRecord, Player, Seat } from "./types";
+import type { GameRow, LastPlyRow, MoveRow, PersistedGame, PlayerRow, PoolLike, TransactionClient } from "./storeTypes";
+import { toIsoNow, toNumber } from "./storeDbUtils";
+import { splitSqlStatements } from "./storeDbUtils";
+import { createJoinToken, oppositeSeat, pickLobbySeat } from "./storeSeatLogic";
+import { consumeElapsedClock, settleTimeoutIfNeeded } from "./storeClockLogic";
+import { toGame, toPersistedGame, toProjectedGame, mapGameRow, mapPlayerRow, mapMoveRow } from "./storeGameTransforms";
+import { getMigrationScripts } from "./storeMigrations";
 
-type DbQueryResult<T> = {
-  rows: T[];
-  rowCount: number | null;
-};
-
-type Queryable = {
-  query<T extends Record<string, unknown>>(text: string, params?: readonly unknown[]): Promise<DbQueryResult<T>>;
-};
-
-type TransactionClient = Queryable & {
-  release: () => void;
-};
-
-type PoolLike = Queryable & {
-  connect: () => Promise<TransactionClient>;
-  end?: () => Promise<void>;
-};
-
-type PersistedGame = {
-  id: string;
-  status: Game["status"];
-  turn: Seat;
-  state: GameState;
-  mainSecondsBlack: number;
-  mainSecondsWhite: number;
-  byoSecondsBlack: number;
-  byoSecondsWhite: number;
-  resultType: Game["resultType"] | null;
-  winner: Seat | null;
-  version: number;
-  turnStartedAtMs: number;
-  createdAt: string;
-  updatedAt: string;
-  joinTokenHash: string;
-};
-
-type GameRow = {
-  id: string;
-  status: Game["status"];
-  turn: Seat;
-  state_json: GameState;
-  main_seconds_black: number | string;
-  main_seconds_white: number | string;
-  byo_seconds_black: number | string;
-  byo_seconds_white: number | string;
-  result_type: Game["resultType"] | null;
-  winner: Seat | null;
-  version: number | string;
-  turn_started_at_ms: number | string | null;
-  created_at: string | Date;
-  updated_at: string | Date;
-  join_token_hash: string;
-};
-
-type PlayerRow = {
-  id: string;
-  game_id: string;
-  seat: Seat;
-  guest_id: string;
-  display_name: string;
-  session_token_hash: string;
-  joined_at: string | Date;
-};
-
-type MoveRow = {
-  ply: number | string;
-  actor_seat: Seat;
-  move_json: Move;
-  state_json_after: GameState;
-  created_at: string | Date;
-};
-
-type LastPlyRow = {
-  ply: number | string;
-};
+export type { PoolLike } from "./storeTypes";
 
 export interface GameStore {
   createGame(input: CreateGameInput): Promise<{ gameId: string; joinToken: string }>;
@@ -106,331 +36,6 @@ export interface GameStore {
 
 const DEFAULT_MATCH_MAIN_MINUTES = 10;
 const DEFAULT_MATCH_BYO_SECONDS = 30;
-
-function toIsoNow(): string {
-  return new Date().toISOString();
-}
-
-function toIso(value: string | Date): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
-
-function toNumber(value: number | string | bigint | null | undefined): number {
-  if (typeof value === "number") {
-    return value;
-  }
-  if (typeof value === "bigint") {
-    return Number(value);
-  }
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
-function splitSqlStatements(script: string): string[] {
-  return script
-    .split(/;\s*(?:\r?\n|$)/g)
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0);
-}
-
-function createJoinToken(): string {
-  return randomUUID().replaceAll("-", "");
-}
-
-function pickAvailableSeat(seats: readonly Seat[]): Seat | null {
-  if (!seats.includes("black")) {
-    return "black";
-  }
-  if (!seats.includes("white")) {
-    return "white";
-  }
-  return null;
-}
-
-function pickRandomSeat(): Seat {
-  return Math.random() < 0.5 ? "black" : "white";
-}
-
-function pickLobbySeat(seats: readonly Seat[]): Seat | null {
-  if (seats.length === 0) {
-    return pickRandomSeat();
-  }
-  return pickAvailableSeat(seats);
-}
-
-function oppositeSeat(seat: Seat): Seat {
-  return seat === "black" ? "white" : "black";
-}
-
-type TurnClockProjection = {
-  remainingMainSeconds: number;
-  remainingByoSeconds: number;
-  timedOut: boolean;
-};
-
-type SnapshotClockProjection = {
-  mainSecondsBlack: number;
-  mainSecondsWhite: number;
-  byoSecondsBlack: number;
-  byoSecondsWhite: number;
-  turnStartedAtMs: number;
-  timedOut: boolean;
-};
-
-function getElapsedWholeSeconds(turnStartedAtMs: number, nowMs: number): number {
-  return Math.floor(Math.max(0, nowMs - turnStartedAtMs) / 1000);
-}
-
-function projectTurnClock(mainSeconds: number, byoSeconds: number, elapsedSeconds: number): TurnClockProjection {
-  if (elapsedSeconds <= 0) {
-    return {
-      remainingMainSeconds: mainSeconds,
-      remainingByoSeconds: byoSeconds,
-      timedOut: false,
-    };
-  }
-
-  if (elapsedSeconds <= mainSeconds) {
-    return {
-      remainingMainSeconds: mainSeconds - elapsedSeconds,
-      remainingByoSeconds: byoSeconds,
-      timedOut: false,
-    };
-  }
-
-  const overtime = elapsedSeconds - mainSeconds;
-  return {
-    remainingMainSeconds: 0,
-    remainingByoSeconds: Math.max(0, byoSeconds - overtime),
-    timedOut: overtime > byoSeconds,
-  };
-}
-
-function projectClockForSnapshot(game: PersistedGame, nowMs: number): SnapshotClockProjection {
-  const base: SnapshotClockProjection = {
-    mainSecondsBlack: game.mainSecondsBlack,
-    mainSecondsWhite: game.mainSecondsWhite,
-    byoSecondsBlack: game.byoSecondsBlack,
-    byoSecondsWhite: game.byoSecondsWhite,
-    turnStartedAtMs: game.turnStartedAtMs,
-    timedOut: false,
-  };
-
-  if (game.status !== "active") {
-    return base;
-  }
-
-  const elapsedSeconds = getElapsedWholeSeconds(game.turnStartedAtMs, nowMs);
-  if (elapsedSeconds <= 0) {
-    return base;
-  }
-
-  if (game.turn === "black") {
-    const projected = projectTurnClock(game.mainSecondsBlack, game.byoSecondsBlack, elapsedSeconds);
-    return {
-      ...base,
-      mainSecondsBlack: projected.remainingMainSeconds,
-      byoSecondsBlack: projected.remainingByoSeconds,
-      turnStartedAtMs: game.turnStartedAtMs + elapsedSeconds * 1000,
-      timedOut: projected.timedOut,
-    };
-  }
-
-  const projected = projectTurnClock(game.mainSecondsWhite, game.byoSecondsWhite, elapsedSeconds);
-  return {
-    ...base,
-    mainSecondsWhite: projected.remainingMainSeconds,
-    byoSecondsWhite: projected.remainingByoSeconds,
-    turnStartedAtMs: game.turnStartedAtMs + elapsedSeconds * 1000,
-    timedOut: projected.timedOut,
-  };
-}
-
-function consumeElapsedClock(game: PersistedGame, nowMs: number): boolean {
-  if (game.status !== "active") {
-    return false;
-  }
-
-  const elapsedSeconds = getElapsedWholeSeconds(game.turnStartedAtMs, nowMs);
-  if (elapsedSeconds <= 0) {
-    return false;
-  }
-
-  if (game.turn === "black") {
-    const projected = projectTurnClock(game.mainSecondsBlack, game.byoSecondsBlack, elapsedSeconds);
-    game.mainSecondsBlack = projected.remainingMainSeconds;
-    game.turnStartedAtMs += elapsedSeconds * 1000;
-    if (!projected.timedOut) {
-      return false;
-    }
-  } else {
-    const projected = projectTurnClock(game.mainSecondsWhite, game.byoSecondsWhite, elapsedSeconds);
-    game.mainSecondsWhite = projected.remainingMainSeconds;
-    game.turnStartedAtMs += elapsedSeconds * 1000;
-    if (!projected.timedOut) {
-      return false;
-    }
-  }
-
-  game.status = "finished";
-  game.resultType = "timeout";
-  game.winner = oppositeSeat(game.turn);
-  game.updatedAt = new Date(nowMs).toISOString();
-  game.version += 1;
-  return true;
-}
-
-function settleTimeoutIfNeeded(game: PersistedGame, nowMs: number): boolean {
-  const projected = projectClockForSnapshot(game, nowMs);
-  if (!projected.timedOut) {
-    return false;
-  }
-
-  game.mainSecondsBlack = projected.mainSecondsBlack;
-  game.mainSecondsWhite = projected.mainSecondsWhite;
-  game.turnStartedAtMs = projected.turnStartedAtMs;
-  game.status = "finished";
-  game.resultType = "timeout";
-  game.winner = oppositeSeat(game.turn);
-  game.updatedAt = new Date(nowMs).toISOString();
-  game.version += 1;
-  return true;
-}
-
-function toGame(snapshot: PersistedGame): Game {
-  return {
-    id: snapshot.id,
-    status: snapshot.status,
-    turn: snapshot.turn,
-    state: snapshot.state,
-    mainSecondsBlack: snapshot.mainSecondsBlack,
-    mainSecondsWhite: snapshot.mainSecondsWhite,
-    byoSecondsBlack: snapshot.byoSecondsBlack,
-    byoSecondsWhite: snapshot.byoSecondsWhite,
-    resultType: snapshot.resultType,
-    winner: snapshot.winner,
-    version: snapshot.version,
-    turnStartedAtMs: snapshot.turnStartedAtMs,
-    createdAt: snapshot.createdAt,
-    updatedAt: snapshot.updatedAt,
-  };
-}
-
-function toPersistedGame(game: Game, joinTokenHash = ""): PersistedGame {
-  return {
-    id: game.id,
-    status: game.status,
-    turn: game.turn,
-    state: game.state,
-    mainSecondsBlack: game.mainSecondsBlack,
-    mainSecondsWhite: game.mainSecondsWhite,
-    byoSecondsBlack: game.byoSecondsBlack,
-    byoSecondsWhite: game.byoSecondsWhite,
-    resultType: game.resultType,
-    winner: game.winner,
-    version: game.version,
-    turnStartedAtMs: game.turnStartedAtMs,
-    createdAt: game.createdAt,
-    updatedAt: game.updatedAt,
-    joinTokenHash,
-  };
-}
-
-function toProjectedGame(snapshot: PersistedGame, nowMs: number): Game {
-  if (snapshot.status !== "active") {
-    return toGame(snapshot);
-  }
-
-  const projected = projectClockForSnapshot(snapshot, nowMs);
-  if (projected.timedOut) {
-    return {
-      ...toGame(snapshot),
-      mainSecondsBlack: projected.mainSecondsBlack,
-      mainSecondsWhite: projected.mainSecondsWhite,
-      byoSecondsBlack: projected.byoSecondsBlack,
-      byoSecondsWhite: projected.byoSecondsWhite,
-      turnStartedAtMs: projected.turnStartedAtMs,
-      status: "finished",
-      resultType: "timeout",
-      winner: oppositeSeat(snapshot.turn),
-      version: snapshot.version + 1,
-      updatedAt: new Date(nowMs).toISOString(),
-    };
-  }
-
-  return {
-    ...toGame(snapshot),
-    mainSecondsBlack: projected.mainSecondsBlack,
-    mainSecondsWhite: projected.mainSecondsWhite,
-    byoSecondsBlack: projected.byoSecondsBlack,
-    byoSecondsWhite: projected.byoSecondsWhite,
-    turnStartedAtMs: projected.turnStartedAtMs,
-  };
-}
-
-function mapGameRow(row: GameRow): PersistedGame {
-  const updatedAt = toIso(row.updated_at);
-  const persistedTurnStartedAtMs = toNumber(row.turn_started_at_ms);
-  const fallbackTurnStartedAtMs = new Date(updatedAt).getTime();
-
-  return {
-    id: row.id,
-    status: row.status,
-    turn: row.turn,
-    state: row.state_json,
-    mainSecondsBlack: toNumber(row.main_seconds_black),
-    mainSecondsWhite: toNumber(row.main_seconds_white),
-    byoSecondsBlack: toNumber(row.byo_seconds_black),
-    byoSecondsWhite: toNumber(row.byo_seconds_white),
-    resultType: row.result_type,
-    winner: row.winner,
-    version: toNumber(row.version),
-    turnStartedAtMs: persistedTurnStartedAtMs > 0 ? persistedTurnStartedAtMs : fallbackTurnStartedAtMs,
-    createdAt: toIso(row.created_at),
-    updatedAt,
-    joinTokenHash: row.join_token_hash,
-  };
-}
-
-function mapPlayerRow(row: PlayerRow): Player {
-  return {
-    id: row.id,
-    gameId: row.game_id,
-    seat: row.seat,
-    guestId: row.guest_id,
-    displayName: row.display_name,
-    sessionTokenHash: row.session_token_hash,
-    joinedAt: toIso(row.joined_at),
-  };
-}
-
-function mapMoveRow(row: MoveRow): MoveRecord {
-  return {
-    ply: toNumber(row.ply),
-    actorSeat: row.actor_seat,
-    move: row.move_json,
-    stateAfter: row.state_json_after,
-    createdAt: toIso(row.created_at),
-  };
-}
-
-let migrationScriptsPromise: Promise<string[]> | null = null;
-
-async function loadMigrationScripts(): Promise<string[]> {
-  const migrationDir = fileURLToPath(new URL("../db/migrations", import.meta.url));
-  const files = (await readdir(migrationDir)).filter((file) => file.endsWith(".sql")).sort();
-  return Promise.all(files.map((file) => readFile(path.join(migrationDir, file), "utf8")));
-}
-
-async function getMigrationScripts(): Promise<string[]> {
-  if (!migrationScriptsPromise) {
-    migrationScriptsPromise = loadMigrationScripts();
-  }
-  return migrationScriptsPromise;
-}
 
 export class InMemoryStore implements GameStore {
   private readonly games = new Map<string, Game>();
@@ -765,7 +370,7 @@ export class PostgresStore implements GameStore {
     }
   }
 
-  private async lockGame(client: Queryable, gameId: string): Promise<PersistedGame | null> {
+  private async lockGame(client: TransactionClient, gameId: string): Promise<PersistedGame | null> {
     const result = await client.query<GameRow>(
       `SELECT
          id,
@@ -796,7 +401,7 @@ export class PostgresStore implements GameStore {
     return mapGameRow(result.rows[0]);
   }
 
-  private async lockWaitingGameByPassphrase(client: Queryable, passphraseHash: string): Promise<PersistedGame | null> {
+  private async lockWaitingGameByPassphrase(client: TransactionClient, passphraseHash: string): Promise<PersistedGame | null> {
     const result = await client.query<GameRow>(
       `SELECT
          id,
@@ -829,7 +434,7 @@ export class PostgresStore implements GameStore {
     return mapGameRow(result.rows[0]);
   }
 
-  private async createMatchGame(client: Queryable, passphraseHash: string): Promise<PersistedGame> {
+  private async createMatchGame(client: TransactionClient, passphraseHash: string): Promise<PersistedGame> {
     const gameId = randomUUID();
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
@@ -885,7 +490,7 @@ export class PostgresStore implements GameStore {
     };
   }
 
-  private async updateGame(client: Queryable, game: PersistedGame, previousVersion: number): Promise<void> {
+  private async updateGame(client: TransactionClient, game: PersistedGame, previousVersion: number): Promise<void> {
     const result = await client.query(
       `UPDATE games
        SET
