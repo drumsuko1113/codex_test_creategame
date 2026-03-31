@@ -24,6 +24,3 @@ export function toBoardPosition(displayPosition: Position, perspective: Color): 
   };
 }
 
-export function toDisplayPosition(boardPosition: Position, perspective: Color): Position {
-  return toBoardPosition(boardPosition, perspective);
-}

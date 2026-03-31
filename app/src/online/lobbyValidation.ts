@@ -2,18 +2,6 @@ import { isValidLobbyPassphrase, isValidPlayerName } from "../../../core/src/lob
 
 type Seat = "black" | "white";
 
-export type CreateGameFormInput = {
-  mainMinutes: string;
-  byoSeconds: string;
-};
-
-export type JoinGameFormInput = {
-  gameId: string;
-  joinToken: string;
-  name: string;
-  seat: Seat;
-};
-
 export type MatchLobbyFormInput = {
   passphrase: string;
   name: string;
@@ -34,72 +22,6 @@ type ValidationError = {
 };
 
 export type ValidationResult<T> = ValidationOk<T> | ValidationError;
-
-function toInteger(value: string): number | null {
-  if (!/^\d+$/.test(value.trim())) {
-    return null;
-  }
-  const parsed = Number.parseInt(value, 10);
-  return Number.isInteger(parsed) ? parsed : null;
-}
-
-export function validateCreateGameForm(input: CreateGameFormInput): ValidationResult<{ mainMinutes: number; byoSeconds: number }> {
-  const errors: string[] = [];
-  const mainMinutes = toInteger(input.mainMinutes);
-  const byoSeconds = toInteger(input.byoSeconds);
-
-  if (mainMinutes === null || mainMinutes < 1) {
-    errors.push("持ち時間は1分以上の整数で入力してください。");
-  }
-  if (byoSeconds === null || byoSeconds < 0 || byoSeconds % 10 !== 0) {
-    errors.push("秒読みは0以上かつ10秒単位で入力してください。");
-  }
-
-  if (errors.length > 0) {
-    return { ok: false, errors };
-  }
-
-  return {
-    ok: true,
-    value: {
-      mainMinutes,
-      byoSeconds,
-    },
-  };
-}
-
-export function validateJoinGameForm(
-  input: JoinGameFormInput,
-): ValidationResult<{ gameId: string; joinToken: string; name: string; seat: Seat }> {
-  const errors: string[] = [];
-  const gameId = input.gameId.trim();
-  const joinToken = input.joinToken.trim();
-  const name = input.name.trim();
-
-  if (!gameId) {
-    errors.push("gameIdを入力してください。");
-  }
-  if (!joinToken) {
-    errors.push("joinTokenを入力してください。");
-  }
-  if (!isValidPlayerName(name)) {
-    errors.push("表示名は2〜20文字で入力してください。");
-  }
-
-  if (errors.length > 0) {
-    return { ok: false, errors };
-  }
-
-  return {
-    ok: true,
-    value: {
-      gameId,
-      joinToken,
-      name,
-      seat: input.seat,
-    },
-  };
-}
 
 export function validateMatchLobbyForm(input: MatchLobbyFormInput): ValidationResult<{ passphrase: string; name: string }> {
   const errors: string[] = [];
